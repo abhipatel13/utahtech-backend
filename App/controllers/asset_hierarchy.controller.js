@@ -124,39 +124,48 @@ exports.uploadCSV = async (req, res) => {
         .on('data', (row) => {
           try {
             console.log('Processing row:', row);
+            console.log('Row keys:', Object.keys(row));
             
-            // Log the actual values being checked
-            console.log('Row validation:', {
-              id: row.id,
-              name: row.name,
-              level: row.level
-            });
-
-            if (!row.id || !row.name) {
-              const error = `Row missing required fields (id, name): ${JSON.stringify(row)}`;
+            // Check if required fields exist in the row
+            const assetId = row['Asset ID'];
+            console.log('Asset ID:', assetId);
+            const assetName = row['Asset Name'];
+            console.log('Asset Name:', assetName);
+            
+            if (!assetId || !assetName) {
+              const error = `Row missing required fields (Asset ID, Asset Name): ${JSON.stringify(row)}`;
               console.error(error);
               errors.push(error);
               return;
             }
 
-            const level = parseInt(row.level);
+            const level = parseInt(row['Level']);
             if (isNaN(level)) {
-              const error = `Invalid level value for asset ${row.id}: ${row.level}`;
+              const error = `Invalid level value for asset ${assetId}: ${row['Level']}`;
+              console.error(error);
+              errors.push(error);
+              return;
+            }
+
+            // Clean and validate the Asset ID
+            const cleanAssetId = assetId.trim();
+            if (!cleanAssetId) {
+              const error = `Invalid Asset ID: ${assetId}`;
               console.error(error);
               errors.push(error);
               return;
             }
             
             assets.push({
-              id: row.id,
-              name: row.name,
-              description: row.description || null,
-              parent: row.parent || null,
+              id: cleanAssetId,
+              name: assetName.trim(),
+              description: row['Description'] ? row['Description'].trim() : null,
+              parent: row['Parent ID'] ? row['Parent ID'].trim() : null,
               level: level,
-              fmea: row.fmea || null,
-              actions: row.actions || null,
-              criticalityAssessment: row.criticalityAssessment || null,
-              inspectionPoints: row.inspectionPoints || null
+              fmea: row['FMEA'] ? row['FMEA'].trim() : null,
+              actions: row['Actions'] ? row['Actions'].trim() : null,
+              criticalityAssessment: row['Criticality Assessment'] ? row['Criticality Assessment'].trim() : null,
+              inspectionPoints: row['Inspection Points'] ? row['Inspection Points'].trim() : null
             });
           } catch (error) {
             console.error('Error processing row:', error);
@@ -184,14 +193,42 @@ exports.uploadCSV = async (req, res) => {
         status: false,
         message: "CSV validation failed",
         errors: errors,
-        details: "Please check the CSV file format and ensure all required fields are present"
+        details: "Please check the CSV file format and ensure all required fields (Asset ID, Asset Name, Level) are present"
       });
     }
 
     // Create all assets in a transaction
     const result = await db.sequelize.transaction(async (t) => {
-      // First, clear existing data
-      await AssetHierarchy.destroy({ where: {}, transaction: t });
+      // First, get all existing assets
+      const existingAssets = await AssetHierarchy.findAll({ transaction: t });
+      
+      // Function to get assets with no children
+      const getAssetsWithNoChildren = async () => {
+        const allAssets = await AssetHierarchy.findAll({ transaction: t });
+        return allAssets.filter(asset => {
+          return !allAssets.some(otherAsset => otherAsset.parent === asset.id);
+        });
+      };
+
+      // Delete assets that have no children, repeat until all are deleted
+      while (existingAssets.length > 0) {
+        const assetsToDelete = await getAssetsWithNoChildren();
+        if (assetsToDelete.length === 0) {
+          throw new Error('Circular dependency detected in asset hierarchy');
+        }
+        
+        for (const asset of assetsToDelete) {
+          await AssetHierarchy.destroy({
+            where: { id: asset.id },
+            transaction: t
+          });
+          // Remove from existingAssets array
+          const index = existingAssets.findIndex(a => a.id === asset.id);
+          if (index > -1) {
+            existingAssets.splice(index, 1);
+          }
+        }
+      }
       
       // Then create new assets
       const createdAssets = await Promise.all(

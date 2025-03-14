@@ -17,14 +17,14 @@ module.exports = (sequelize, Sequelize) => {
       type: Sequelize.TEXT,
       allowNull: false
     },
-    // assetSystem: {
-    //   type: Sequelize.INTEGER,
-    //   allowNull: true,
-    //   references: {
-    //     model: 'asset_heirarchies',
-    //     key: 'id'
-    //   }
-    // },
+    assetSystem: {
+      type: Sequelize.INTEGER,
+      allowNull: true,
+      references: {
+        model: 'asset_hierarchy',
+        key: 'id'
+      }
+    },
     systemLockoutRequired: {
       type: Sequelize.BOOLEAN,
       defaultValue: false
@@ -71,7 +71,7 @@ module.exports = (sequelize, Sequelize) => {
     });
     
     // A TaskHazard belongs to an AssetHierarchy
-    TaskHazard.belongsTo(models.asset_heirarchies, {
+    TaskHazard.belongsTo(models.asset_hierarchy, {
       foreignKey: 'assetSystem',
       as: 'asset'
     });

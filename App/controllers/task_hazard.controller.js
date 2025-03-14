@@ -1,31 +1,110 @@
 const db = require("../models");
 const TaskHazard = db.task_hazards;
 const TaskRisk = db.task_risks;
-const AssetHierarchy = db.asset_heirarchies;
+const AssetHierarchy = db.asset_hierarchy;
+const { Op } = require("sequelize");
+
+// Function to generate the next task ID
+const generateNextTaskId = async () => {
+  try {
+    // Get the latest task hazard
+    const latestTask = await TaskHazard.findOne({
+      order: [['id', 'DESC']]
+    });
+
+    if (!latestTask) {
+      return 'TZ1'; // First task ID
+    }
+
+    // Extract the number from the latest ID (e.g., 'TZ1' -> 1)
+    const lastNumber = parseInt(latestTask.id.replace('TZ', ''));
+    return `TZ${lastNumber + 1}`;
+  } catch (error) {
+    console.error('Error generating task ID:', error);
+    throw new Error('Failed to generate task ID');
+  }
+};
 
 // Create and Save a new Task Hazard
 exports.create = async (req, res) => {
   try {
     // Validate request
-    console.log(req.body);
-    if (!req.body.id || !req.body.date || !req.body.time || !req.body.scopeOfWork || 
-        !req.body.trainedWorkforce || !req.body.individual || 
-        !req.body.supervisor || !req.body.location || !req.body.risks || !Array.isArray(req.body.risks)) {
+    console.log('Received request body:', req.body);
+    
+    // Check each required field and collect missing fields
+    const missingFields = [];
+    const requiredFields = [
+      { field: 'date', name: 'Date' },
+      { field: 'time', name: 'Time' },
+      { field: 'scopeOfWork', name: 'Scope of Work' },
+      { field: 'trainedWorkforce', name: 'Trained Workforce' },
+      { field: 'individual', name: 'Individual' },
+      { field: 'supervisor', name: 'Supervisor' },
+      { field: 'location', name: 'Location' }
+    ];
+
+    requiredFields.forEach(({ field, name }) => {
+      if (!req.body[field]) {
+        missingFields.push(name);
+      }
+    });
+
+    console.log('Missing fields:', req.body.risks);
+
+    // Check if risks array exists and is not empty
+    if (!req.body.risks || !Array.isArray(req.body.risks) || req.body.risks.length === 0) {
+      missingFields.push('Risks (at least one risk is required)');
+    }
+
+    // If there are missing fields, return detailed error
+    if (missingFields.length > 0) {
       return res.status(400).json({
         status: false,
-        message: "Missing required fields"
+        message: "Missing required fields",
+        details: {
+          missingFields: missingFields,
+          receivedFields: Object.keys(req.body)
+        }
       });
     }
 
     // Check if asset system exists
-    // const assetSystem = await AssetHierarchy.findByPk(req.body.assetSystem);
-    // if (!assetSystem) {
-    //   return res.status(404).json({
-    //     status: false,
-    //     message: "Asset system not found"
-    //   });
-    // }
-    // console.log(assetSystem);
+    try {
+      const assetSystem = await AssetHierarchy.findOne({
+        where: {
+          [Op.or]: [
+            { id: req.body.assetSystem },
+            { name: req.body.assetSystem }
+          ]
+        }
+      });
+      console.log('Asset system:', req.body.assetSystem, assetSystem);
+
+      if (!assetSystem) {
+        return res.status(404).json({
+          status: false,
+          message: "Asset system not found",
+          details: {
+            searchedValue: req.body.assetSystem,
+            availableAssets: await AssetHierarchy.findAll({
+              attributes: ['id', 'name'],
+              limit: 5
+            })
+          }
+        });
+      }
+      console.log('Asset system found:', assetSystem);
+    } catch (error) {
+      console.error('Error checking asset system:', error);
+      return res.status(500).json({
+        status: false,
+        message: "Error checking asset system",
+        details: error.message
+      });
+    }
+
+    // Generate the next task ID
+    const taskId = await generateNextTaskId();
 
     // Helper function to convert likelihood and consequence strings to integers
     const convertToInteger = (value) => {
@@ -54,7 +133,7 @@ exports.create = async (req, res) => {
       console.log("This is the assetSystem", req.body);
       
       const taskHazard = await TaskHazard.create({
-        id: req.body.id,
+        id: taskId, // Use the generated task ID
         date: req.body.date,
         time: req.body.time,
         scopeOfWork: req.body.scopeOfWork,

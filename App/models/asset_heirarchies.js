@@ -1,5 +1,5 @@
 module.exports = (sequelize, Sequelize) => {
-	const asset_heirarchies = sequelize.define("asset_heirarchies", {
+	const asset_heirarchy = sequelize.define("asset_heirarchy", {
     id: {
       type: Sequelize.INTEGER,
       primaryKey: true,
@@ -24,5 +24,5 @@ module.exports = (sequelize, Sequelize) => {
   }
    });
 
-  return asset_heirarchies;
+  return asset_heirarchy;
 };

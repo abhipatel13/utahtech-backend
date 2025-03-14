@@ -54,9 +54,9 @@ db.task_risks.belongsTo(db.task_hazards, {
 });
 
 // db.task_hazards.belongsTo(db.asset_heirarchies, {
-//   foreignKey: 'assetSystem',
-//   as: 'asset'
-// });
+  //   foreignKey: 'assetSystem',
+  //   as: 'asset'
+  // });
 
 module.exports = db;
 

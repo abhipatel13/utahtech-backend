@@ -1,7 +1,7 @@
 /* eslint-disable no-restricted-syntax */
 const _ = require('lodash');
 const models = require('../models');
-const  AssetHeirarchy  =models.asset_heirarchies;
+const  AssetHeirarchy  =models.asset_hierarchy;
 const Op = models.Sequelize.Op;
 // const logger = require('../configs/logger');
 const helper = require('../helper/helper')

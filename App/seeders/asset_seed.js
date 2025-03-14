@@ -1,6 +1,6 @@
 module.exports = {
   up: async (queryInterface, Sequelize) => {
-    return queryInterface.bulkInsert('asset_heirarchies', [
+    return queryInterface.bulkInsert('asset_hierarchy', [
       {
         id: 1,
         name: 'Asset 1',
@@ -29,6 +29,6 @@ module.exports = {
   },
 
   down: async (queryInterface, Sequelize) => {
-    return queryInterface.bulkDelete('asset_heirarchies', null, {});
+    return queryInterface.bulkDelete('asset_hierarchy', null, {});
   }
 }; 
