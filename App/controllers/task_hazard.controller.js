@@ -231,4 +231,172 @@ exports.findOne = async (req, res) => {
       message: error.message || "Error retrieving Task Hazard with id " + req.params.id
     });
   }
+};
+
+// Update a Task Hazard by the id in the request
+exports.update = async (req, res) => {
+  try {
+    const id = req.params.id;
+    
+    // Check if task hazard exists
+    const taskHazard = await TaskHazard.findByPk(id, {
+      include: [{
+        model: TaskRisk,
+        as: 'risks'
+      }]
+    });
+
+    if (!taskHazard) {
+      return res.status(404).json({
+        status: false,
+        message: "Task Hazard not found"
+      });
+    }
+
+    // If asset system is being updated, verify it exists
+    if (req.body.assetSystem) {
+      const assetSystem = await AssetHierarchy.findOne({
+        where: {
+          [Op.or]: [
+            { id: req.body.assetSystem },
+            { name: req.body.assetSystem }
+          ]
+        }
+      });
+
+      if (!assetSystem) {
+        return res.status(404).json({
+          status: false,
+          message: "Asset system not found",
+          details: {
+            searchedValue: req.body.assetSystem,
+            availableAssets: await AssetHierarchy.findAll({
+              attributes: ['id', 'name'],
+              limit: 5
+            })
+          }
+        });
+      }
+    }
+
+    // Helper function to convert likelihood and consequence strings to integers
+    const convertToInteger = (value) => {
+      const likelihoodMap = {
+        'Very Unlikely': 1,
+        'Unlikely': 2,
+        'Possible': 3,
+        'Likely': 4,
+        'Very Likely': 5
+      };
+      
+      const consequenceMap = {
+        'Negligible': 1,
+        'Minor': 2,
+        'Moderate': 3,
+        'Significant': 4,
+        'Serious': 5
+      };
+      
+      return likelihoodMap[value] || consequenceMap[value] || 1;
+    };
+
+    // Start transaction
+    const result = await db.sequelize.transaction(async (t) => {
+      // Update Task Hazard
+      await taskHazard.update({
+        date: req.body.date || taskHazard.date,
+        time: req.body.time || taskHazard.time,
+        scopeOfWork: req.body.scopeOfWork || taskHazard.scopeOfWork,
+        assetSystem: req.body.assetSystem || taskHazard.assetSystem,
+        systemLockoutRequired: req.body.systemLockoutRequired !== undefined ? req.body.systemLockoutRequired : taskHazard.systemLockoutRequired,
+        trainedWorkforce: req.body.trainedWorkforce || taskHazard.trainedWorkforce,
+        individual: req.body.individual || taskHazard.individual,
+        supervisor: req.body.supervisor || taskHazard.supervisor,
+        location: req.body.location || taskHazard.location,
+        status: req.body.status || taskHazard.status
+      }, { transaction: t });
+
+      // Update associated risks if provided
+      if (req.body.risks && Array.isArray(req.body.risks)) {
+        // Delete existing risks
+        await TaskRisk.destroy({
+          where: { taskHazardId: id },
+          transaction: t
+        });
+
+        // Create new risks
+        const risks = await Promise.all(
+          req.body.risks.map(risk => 
+            TaskRisk.create({
+              taskHazardId: id,
+              riskDescription: risk.riskDescription,
+              riskType: risk.riskType,
+              asIsLikelihood: convertToInteger(risk.asIsLikelihood),
+              asIsConsequence: convertToInteger(risk.asIsConsequence),
+              mitigatingAction: risk.mitigatingAction,
+              mitigatingActionType: risk.mitigatingActionType,
+              mitigatedLikelihood: convertToInteger(risk.mitigatedLikelihood),
+              mitigatedConsequence: convertToInteger(risk.mitigatedConsequence),
+              requiresSupervisorSignature: risk.requiresSupervisorSignature || false
+            }, { transaction: t })
+          )
+        );
+
+        return { taskHazard, risks };
+      }
+
+      return { taskHazard };
+    });
+
+    res.status(200).json({
+      status: true,
+      message: "Task Hazard updated successfully",
+      data: result
+    });
+
+  } catch (error) {
+    res.status(500).json({
+      status: false,
+      message: error.message || "Some error occurred while updating the Task Hazard."
+    });
+  }
+};
+
+// Delete a Task Hazard with the specified id in the request
+exports.delete = async (req, res) => {
+  try {
+    const id = req.params.id;
+    
+    // Check if task hazard exists
+    const taskHazard = await TaskHazard.findByPk(id);
+    if (!taskHazard) {
+      return res.status(404).json({
+        status: false,
+        message: "Task Hazard not found"
+      });
+    }
+
+    // Start transaction
+    await db.sequelize.transaction(async (t) => {
+      // Delete associated risks first (due to foreign key constraint)
+      await TaskRisk.destroy({
+        where: { taskHazardId: id },
+        transaction: t
+      });
+
+      // Delete the task hazard
+      await taskHazard.destroy({ transaction: t });
+    });
+
+    res.status(200).json({
+      status: true,
+      message: "Task Hazard deleted successfully"
+    });
+
+  } catch (error) {
+    res.status(500).json({
+      status: false,
+      message: error.message || "Some error occurred while deleting the Task Hazard."
+    });
+  }
 }; 

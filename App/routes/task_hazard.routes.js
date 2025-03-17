@@ -11,4 +11,10 @@ router.get("/", task_hazards.findAll);
 // Retrieve a single Task Hazard with id
 router.get("/:id", task_hazards.findOne);
 
+// Update a Task Hazard with id
+router.put("/:id", task_hazards.update);
+
+// Delete a Task Hazard with id
+router.delete("/:id", task_hazards.delete);
+
 module.exports = router; 

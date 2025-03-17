@@ -18,7 +18,7 @@ module.exports = (sequelize, Sequelize) => {
       allowNull: false
     },
     assetSystem: {
-      type: Sequelize.INTEGER,
+      type: Sequelize.STRING,
       allowNull: true,
       references: {
         model: 'asset_hierarchy',
