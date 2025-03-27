@@ -29,8 +29,6 @@ const fs = require('fs');
 var port = normalizePort(process.env.PORT || '8000');
 app.set('port', port);
 
-
-
 /**
  * Create HTTP server.
  */
@@ -40,7 +38,7 @@ var server = http.createServer(app);
  * Listen on provided port, on all network interfaces.
  */
 server.listen(port, ()=>{
-    console.log(`listening on port ${port}`);
+    console.log(`Server is running on port ${port}`);
 });
 
 // httpsServer.listen('8443', () =>
@@ -53,7 +51,6 @@ server.on('listening', onListening);
 /**
  * Normalize a port into a number, string, or false.
  */
-
 
 function normalizePort(val) {
     var port = parseInt(val, 10);

@@ -10,7 +10,8 @@ router.use((req, res, next) => {
     method: req.method,
     path: req.path,
     headers: req.headers,
-    body: req.body
+    body: req.body,
+    files: req.files
   });
   next();
 });
@@ -33,6 +34,7 @@ const upload = multer({
 
 // Error handling middleware
 const handleError = (err, req, res, next) => {
+  console.error('Upload error:', err);
   if (err instanceof multer.MulterError) {
     return res.status(400).json({
       status: false,
@@ -51,7 +53,7 @@ const handleError = (err, req, res, next) => {
 };
 
 // Routes
-router.post('/create', assetHierarchyController.create);
+router.post('/', assetHierarchyController.create);
 router.post('/upload-csv', upload.single('file'), handleError, assetHierarchyController.uploadCSV);
 router.get('/', assetHierarchyController.findAll);
 router.get('/:id', assetHierarchyController.findOne);

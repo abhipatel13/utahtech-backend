@@ -14,7 +14,20 @@ module.exports = (sequelize, Sequelize) => {
       type: Sequelize.STRING,  // Functional Location Description
       allowNull: false
     },
-    description: {
+    cmmsInternalId: {
+      type: Sequelize.STRING,  // CMMS Internal ID
+      field: 'cmms_internal_id',
+      allowNull: false
+    },
+    functionalLocation: {
+      type: Sequelize.STRING,  // Functional Location
+      allowNull: false
+    },
+    functionalLocationDesc: {
+      type: Sequelize.STRING,  // Functional Location Description
+      allowNull: false
+    },
+    functionalLocationLongDesc: {
       type: Sequelize.TEXT,    // Functional Location Long Description
       allowNull: true
     },

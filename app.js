@@ -7,6 +7,7 @@ const cookieParser = require('cookie-parser');
 const logger = require('morgan');
 const sass = require('sass');
 const routes = require('./App/routes');
+
 // Import the router directly
 const taskHazardRoutes = require('./App/routes/task_hazard.routes');
 const assetHierarchyRoutes = require('./App/routes/asset_hierarchy.routes');
