@@ -2,6 +2,9 @@ const db = require("../models");
 const AssetHierarchy = db.asset_hierarchy;
 const TaskHazards = db.task_hazards;
 const csv = require('csv-parse/sync');
+const fs = require('fs');
+const path = require('path');
+const { parse } = require('csv');
 
 // Create and Save new Asset Hierarchy entries
 exports.create = async (req, res) => {
@@ -13,8 +16,6 @@ exports.create = async (req, res) => {
         message: "Assets array is required"
       });
     }
-
-    console.log(req.body.assets);
 
     // Validate each asset
     const validationErrors = [];
@@ -45,7 +46,6 @@ exports.create = async (req, res) => {
           const uniqueId = `${asset.cmmsInternalId}-${timestamp}`;
 
 
-          console.log("asset.functionalLocationDesc", asset.functionalLocation, "asset.functionalLocationLongDesc", asset.functionalLocationLongDesc);
           return AssetHierarchy.create({
             id: uniqueId,
             name: asset.name,
@@ -72,10 +72,8 @@ exports.create = async (req, res) => {
         })
       );
 
-      // Create a map of all assets using ID for quick lookup
       const assetMap = new Map(assets.map(asset => [asset.id, asset]));
 
-      // Finally, calculate and update levels
       for (const asset of assets) {
         let level = 0;
         let currentParent = asset.parent;
@@ -111,177 +109,130 @@ exports.create = async (req, res) => {
 // Handle CSV file upload
 exports.uploadCSV = async (req, res) => {
   const t = await db.sequelize.transaction();
-  
   try {
     if (!req.file) {
-      return res.status(400).json({
-        status: false,
-        message: 'No file uploaded'
-      });
+      return res.status(400).json({ success: false, message: 'No file uploaded' });
     }
 
-    console.log('File received:', {
-      filename: req.file.originalname,
-      size: req.file.size,
-      mimetype: req.file.mimetype
-    });
-
+    // Parse CSV from buffer directly
     const csvString = req.file.buffer.toString('utf-8');
-    console.log('CSV string length:', csvString.length);
-    
-    const lines = csvString.split('\n');
-    console.log('Number of lines:', lines.length);
-    
-    const headers = lines[0].split(',').map(h => h.trim());
-    console.log('CSV headers:', headers);
-
-    // Validate headers
-    const requiredHeaders = [
-      'Maintenance Plant',
-      'Primary Key',
-      'CMMS Internal ID',
-      'Functional Location',
-      'Parent',
-      'CMMS System',
-      'Site Reference Name',
-      'Functional Location Description',
-      'Functional Location Long Description',
-      'Object Type (Taxonomy Mapping Value)',
-      'System Status',
-      'Make',
-      'Manufacturer',
-      'Serial Number'
-    ];
-
-    const missingHeaders = requiredHeaders.filter(h => !headers.includes(h));
-    if (missingHeaders.length > 0) {
-      throw new Error(`Missing required columns: ${missingHeaders.join(', ')}`);
-    }
-
-    // Process the CSV data first to get all assets
-    const assets = [];
-    const parentMap = new Map();
-    
-    // Skip header and field description rows
-    for (let i = 2; i < lines.length; i++) {
-      const line = lines[i].trim();
-      if (!line) continue;
-      
-      const values = line.split(',').map(v => v.trim());
-      
-      // Skip the field description row
-      if (values[headers.indexOf('Maintenance Plant')] === 'System generated from last number') {
-        continue;
-      }
-      
-      const functionalLocation = values[headers.indexOf('Functional Location')];
-      const description = values[headers.indexOf('Functional Location Description')];
-      
-      if (!functionalLocation || !description) {
-        throw new Error(`Row ${i + 1}: Both Functional Location and Description are required`);
-      }
-
-      const parent = values[headers.indexOf('Parent')] || null;
-      if (parent) {
-        parentMap.set(functionalLocation, parent);
-      }
-
-      const asset = {
-        id: functionalLocation,
-        internalId: values[headers.indexOf('CMMS Internal ID')] || '',
-        name: description,
-        description: values[headers.indexOf('Functional Location Long Description')] || description,
-        parent: parent,
-        maintenancePlant: values[headers.indexOf('Maintenance Plant')] || '',
-        primaryKey: values[headers.indexOf('Primary Key')] || '',
-        cmmsSystem: values[headers.indexOf('CMMS System')] || '',
-        siteReference: values[headers.indexOf('Site Reference Name')] || '',
-        objectType: values[headers.indexOf('Object Type (Taxonomy Mapping Value)')] || '',
-        systemStatus: values[headers.indexOf('System Status')] || 'Active',
-        make: values[headers.indexOf('Make')] || '',
-        manufacturer: values[headers.indexOf('Manufacturer')] || '',
-        serialNumber: values[headers.indexOf('Serial Number')] || '',
-        level: 0,
-        createdAt: new Date(),
-        updatedAt: new Date()
-      };
-
-      assets.push(asset);
-    }
-
-    if (assets.length === 0) {
-      throw new Error('No valid assets found in the CSV file');
-    }
-
-    // Delete task hazards first
-    await TaskHazards.destroy({ 
-      where: {}, 
-      transaction: t 
+    const assets = csv.parse(csvString, {
+      columns: true,
+      skip_empty_lines: true
     });
 
-    // Delete all existing asset hierarchy records
-    await AssetHierarchy.destroy({ 
-      where: {}, 
-      transaction: t 
-    });
-
-    // First pass: Create all assets without worrying about relationships
-    const createdAssets = await Promise.all(
-      assets.map(asset => 
-        AssetHierarchy.create({
-          id: asset.id,
-          internalId: asset.internalId,
-          name: asset.name,
-          description: asset.description,
-          parent: asset.parent,
-          maintenancePlant: asset.maintenancePlant,
-          primaryKey: asset.primaryKey,
-          cmmsSystem: asset.cmmsSystem,
-          siteReference: asset.siteReference,
-          objectType: asset.objectType,
-          systemStatus: asset.systemStatus,
-          make: asset.make,
-          manufacturer: asset.manufacturer,
-          serialNumber: asset.serialNumber,
-          level: 0 // We'll calculate this in the second pass
-        }, { transaction: t })
-      )
+    // First, remove all parent relationships
+    await AssetHierarchy.update(
+      { parent: null },
+      { 
+        where: {}, // Add empty where clause to update all records
+        transaction: t 
+      }
     );
 
-    // Second pass: Calculate and update levels
-    for (const asset of createdAssets) {
-      let level = 0;
-      let currentParent = asset.parent;
+    // Then delete all assets
+    await AssetHierarchy.destroy({
+      where: {},
+      transaction: t
+    });
+
+    // Create all assets without parent relationships first
+    const assetMap = new Map();
+    const createdAssets = [];
+    for (const asset of assets) {
+      // Generate a unique ID based on timestamp and CMMS Internal ID
+      const timestamp = Date.now();
+      const uniqueId = `${asset['CMMS Internal ID']}-${timestamp}`;
       
-      while (currentParent) {
-        level++;
-        const parentAsset = createdAssets.find(a => a.id === currentParent);
-        if (!parentAsset) break;
-        currentParent = parentAsset.parent;
-      }
-      
-      await asset.update({ level }, { transaction: t });
+      // Use Functional Location Description as name, or fallback to Functional Location
+      const assetName = asset['Functional Location Description'] || asset['Functional Location'] || 'Unnamed Asset';
+
+      const newAsset = await AssetHierarchy.create({
+        id: uniqueId,
+        name: assetName,
+        maintenancePlant: asset['Maintenance Plant'] || null,
+        cmmsInternalId: asset['CMMS Internal ID'] || null,
+        functionalLocation: asset['Functional Location'] || null,
+        parent: null, // Set parent to null initially
+        cmmsSystem: asset['CMMS System'] || null,
+        siteReferenceName: asset['Site Reference Name'] || null,
+        functionalLocationDesc: asset['Functional Location Description'] || null,
+        functionalLocationLongDesc: asset['Functional Location Long Description'] || null,
+        objectType: asset['Object Type'] || null,
+        systemStatus: asset['System Status'] || 'Active',
+        make: asset['Make'] || null,
+        manufacturer: asset['Manufacturer'] || null,
+        serialNumber: asset['Serial Number'] || null,
+        description: asset['Asset Description'] || asset['Functional Location Description'] || null,
+        level: 1 // Set initial level
+      }, { transaction: t });
+
+      createdAssets.push(newAsset);
+      // Store the asset in the map using functional location as key
+      assetMap.set(asset['Functional Location'], newAsset);
     }
 
-    await t.commit();
+    // Update parent relationships
+    for (const asset of assets) {
+      const parentLocation = asset['Parent'];
+      if (parentLocation && assetMap.has(parentLocation)) {
+        const childAsset = assetMap.get(asset['Functional Location']);
+        const parentAsset = assetMap.get(parentLocation);
+        if (childAsset && parentAsset) {
+          await childAsset.update({
+            parent: parentAsset.id
+          }, { 
+            where: { id: childAsset.id },
+            transaction: t 
+          });
+        }
+      }
+    }
+
+    // Calculate levels based on parent relationships
+    const calculateLevels = async (asset, level) => {
+      await asset.update({ level }, { 
+        where: { id: asset.id },
+        transaction: t 
+      });
+      const children = await AssetHierarchy.findAll({
+        where: { parent: asset.id },
+        transaction: t
+      });
+      for (const child of children) {
+        await calculateLevels(child, level + 1);
+      }
+    };
+
+    // Start with root assets (those without parents)
+    const rootAssets = await AssetHierarchy.findAll({
+      where: { parent: null },
+      transaction: t
+    });
+
+    for (const rootAsset of rootAssets) {
+      await calculateLevels(rootAsset, 1);
+    }
 
     // Fetch the final state of all assets with proper ordering
     const finalAssets = await AssetHierarchy.findAll({
-      order: [['level', 'ASC'], ['name', 'ASC']]
+      order: [['level', 'ASC'], ['name', 'ASC']],
+      transaction: t
     });
 
-    res.json({
-      status: true,
-      message: 'CSV file processed successfully',
+    await t.commit();
+    res.json({ 
+      success: true, 
+      message: 'CSV processed successfully',
       data: finalAssets
     });
-
   } catch (error) {
     await t.rollback();
-    console.error('Error processing CSV:', error);
-    res.status(400).json({
-      status: false,
-      message: error.message || 'Error processing CSV file'
+    console.error('Error in uploadCSV:', error);
+    res.status(400).json({ 
+      success: false, 
+      message: 'Error processing CSV',
+      error: error.message 
     });
   }
 };
