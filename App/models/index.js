@@ -24,6 +24,9 @@ fs
     return (file.indexOf('.') !== 0) && (file !== basename) && (file.slice(-3) === '.js');
   })
   .forEach(file => {
+    // Skip User.js as it's a class, not a Sequelize model
+    if (file === 'User.js') return;
+    
     const model = require(path.join(__dirname, file))(sequelize, Sequelize.DataTypes);
     db[model.name] = model;
   });
@@ -42,6 +45,10 @@ db.asset_hierarchy = require("./asset_hierarchy.js")(sequelize, Sequelize);
 db.task_hazards = require("./task_hazards.js")(sequelize, Sequelize);
 db.task_risks = require("./task_risks.js")(sequelize, Sequelize);
 
+// Import User model directly (it's a class, not a Sequelize model)
+const User = require("./User.js");
+db.User = User;
+
 // Define relationships
 db.task_hazards.hasMany(db.task_risks, {
   foreignKey: 'taskHazardId',
@@ -50,7 +57,7 @@ db.task_hazards.hasMany(db.task_risks, {
 
 db.task_risks.belongsTo(db.task_hazards, {
   foreignKey: 'taskHazardId',
-  as: 'taskHazard'
+  as: 'hazard'
 });
 
 // db.task_hazards.belongsTo(db.asset_heirarchies, {

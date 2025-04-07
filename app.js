@@ -38,11 +38,9 @@ app.use(cors());
 
 const db = require("./App/models");
 
-// Force sync to apply schema changes
-// WARNING: This will drop all tables and recreate them
-// Only use this in development, not in production
-db.sequelize.sync({ force: true }).then(() => {
-  console.log("Drop and re-sync db.");
+// Sync database without dropping tables
+db.sequelize.sync().then(() => {
+  console.log("Database synced.");
 });
 
 // view engine setup
