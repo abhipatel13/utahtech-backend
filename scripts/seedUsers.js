@@ -44,7 +44,6 @@ const seedUsers = async () => {
   try {
     // Create connection to MySQL
     connection = await mysql.createConnection(dbConfig);
-    console.log('Connected to MySQL database');
 
     // Check if users table exists
     const [tables] = await connection.execute('SHOW TABLES LIKE "users"');

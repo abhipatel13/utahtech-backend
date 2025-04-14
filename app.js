@@ -11,6 +11,7 @@ const routes = require('./App/routes');
 // Import the router directly
 const taskHazardRoutes = require('./App/routes/task_hazard.routes');
 const assetHierarchyRoutes = require('./App/routes/asset_hierarchy.routes');
+const userRoutes = require('./App/routes/userRoutes');
 
 const cors = require('cors');
 
@@ -88,6 +89,7 @@ app.use('/api', routes);
 // Use the routers directly
 app.use('/api/task-hazards', taskHazardRoutes);
 app.use('/api/asset-hierarchy', assetHierarchyRoutes);
+app.use('/api/users', userRoutes);
 // catch 404 and forward to error handler
 app.use(function (req, res, next) {
   next(createError(404, 'The url you have is not available. Please check and try again'));

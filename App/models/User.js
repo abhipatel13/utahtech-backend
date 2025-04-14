@@ -18,6 +18,11 @@ class User {
     this.company = data.company;
   }
 
+  // Get database connection
+  static async getConnection() {
+    return await mysql.createConnection(dbConfig);
+  }
+
   // Find user by ID
   static async findById(id) {
     const connection = await mysql.createConnection(dbConfig);

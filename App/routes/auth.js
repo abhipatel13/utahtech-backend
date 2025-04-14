@@ -50,14 +50,20 @@ router.post('/login', async (req, res) => {
     const user = await User.findByEmail(email);
     
     if (!user) {
-      return res.status(401).json({ message: 'Invalid email or password' });
+      return res.status(401).json({ 
+        status: false,
+        message: 'Invalid email or password' 
+      });
     }
     
     // Check password
     const isPasswordValid = await user.comparePassword(password);
     
     if (!isPasswordValid) {
-      return res.status(401).json({ message: 'Invalid email or password' });
+      return res.status(401).json({ 
+        status: false,
+        message: 'Invalid email or password' 
+      });
     }
     
     // Update last login
@@ -65,19 +71,31 @@ router.post('/login', async (req, res) => {
     
     // Generate JWT token
     const token = jwt.sign(
-      { id: user.id, email: user.email, role: user.role },
-      process.env.JWT_SECRET || 'your-secret-key',
+      { userId: user.id, role: user.role },
+      process.env.JWT_SECRET,
       { expiresIn: '24h' }
     );
     
     // Return user data and token
     res.json({
-      user: user.toJSON(),
-      token
+      status: true,
+      data: {
+        user: {
+          id: user.id,
+          email: user.email,
+          role: user.role,
+          company: user.company
+        },
+        token
+      },
+      message: 'Login successful'
     });
   } catch (error) {
     console.error('Login error:', error);
-    res.status(500).json({ message: 'Server error' });
+    res.status(500).json({ 
+      status: false,
+      message: 'Server error' 
+    });
   }
 });
 
