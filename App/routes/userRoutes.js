@@ -10,12 +10,12 @@ router.get('/all', auth, checkRole(['admin', 'superuser']), async (req, res) => 
     let query;
     let params;
 
-    if (req.user.role === 'superuser') {
-      // Superuser can see all users including other admins
+    if (req.user.role === 'superuser' || req.user.role === 'admin') {
+      // Superuser and Admin can see all users including other admins
       query = 'SELECT id, email, role, company FROM users';
       params = [];
     } else {
-      // Regular admin can only see users and supervisors from their company
+      // Regular users can only see users and supervisors from their company
       query = 'SELECT id, email, role, company FROM users WHERE role IN (?, ?) AND company = ?';
       params = ['user', 'supervisor', req.user.company];
     }

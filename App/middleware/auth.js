@@ -8,27 +8,41 @@ const auth = async (req, res, next) => {
     if (!token) {
       return res.status(401).json({ 
         status: false,
-        message: 'No token provided' 
+        message: 'No token provided',
+        code: 'NO_TOKEN'
       });
     }
 
-    const decoded = jwt.verify(token, process.env.JWT_SECRET);
+    try {
+      const decoded = jwt.verify(token, process.env.JWT_SECRET);
+      const user = await User.findById(decoded.userId);
+      
+      if (!user) {
+        return res.status(401).json({ 
+          status: false,
+          message: 'User not found',
+          code: 'USER_NOT_FOUND'
+        });
+      }
 
-    const user = await User.findById(decoded.userId);
-    if (!user) {
-      return res.status(401).json({ 
-        status: false,
-        message: 'User not found' 
-      });
+      req.user = user;
+      next();
+    } catch (error) {
+      if (error.name === 'TokenExpiredError') {
+        return res.status(401).json({ 
+          status: false,
+          message: 'Session expired. Please login again.',
+          code: 'TOKEN_EXPIRED'
+        });
+      }
+      throw error;
     }
-
-    req.user = user;
-    next();
   } catch (error) {
     console.error('Auth error:', error);
     res.status(401).json({ 
       status: false,
-      message: 'Invalid token' 
+      message: 'Invalid token',
+      code: 'INVALID_TOKEN'
     });
   }
 };
@@ -61,8 +75,8 @@ const checkPermission = (permissions) => {
 
     const userPermissions = req.user.getPermissions();
     
-    // Superuser has all permissions
-    if (req.user.role === 'superuser') {
+    // Superuser or Admin has all permissions
+    if (req.user.role === 'superuser' || req.user.role === 'admin') {
       return next();
     }
 
@@ -82,7 +96,6 @@ const checkPermission = (permissions) => {
 const authenticateToken = (req, res, next) => {
   try {
     const token = req.header('Authorization')?.replace('Bearer ', '');
-    console.log("Token received:", token);
 
     if (!token) {
       return res.status(401).json({ error: 'No token provided' });

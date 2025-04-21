@@ -99,18 +99,20 @@ class User {
   getPermissions() {
     const rolePermissions = {
       superuser: ['all_access'],
-      admin: [
-        'account_creation', 
-        'licensing_management', 
-        'asset_hierarchy'
-      ],
+      admin: ['all_access'],
       supervisor: [
         'risk_assessment',
         'safety_management',
-        'analytics_reporting'
+        'analytics_reporting',
+        'view_tactics',
+        'create_tactics',
+        'edit_tactics',
+        'delete_tactics'
       ],
       user: [
-        'risk_assessment_creation'
+        'risk_assessment_creation',
+        'view_asset_hierarchy',
+        'view_tactics'
       ]
     };
     

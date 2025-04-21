@@ -44,15 +44,16 @@ router.post('/register', auth, checkRole(['superuser', 'admin']), async (req, re
 // Login user
 router.post('/login', async (req, res) => {
   try {
-    const { email, password } = req.body;
+    const { email, password, company } = req.body;
     
     // Find user by email
     const user = await User.findByEmail(email);
+    console.log("user", user)
     
-    if (!user) {
+    if (!user || user.company !== company) {
       return res.status(401).json({ 
         status: false,
-        message: 'Invalid email or password' 
+        message: 'Invalid email, password, or company' 
       });
     }
     
@@ -62,7 +63,7 @@ router.post('/login', async (req, res) => {
     if (!isPasswordValid) {
       return res.status(401).json({ 
         status: false,
-        message: 'Invalid email or password' 
+        message: 'Invalid email, password, or company' 
       });
     }
     
@@ -71,7 +72,7 @@ router.post('/login', async (req, res) => {
     
     // Generate JWT token
     const token = jwt.sign(
-      { userId: user.id, role: user.role },
+      { userId: user.id, role: user.role, company: user.company },
       process.env.JWT_SECRET,
       { expiresIn: '24h' }
     );
@@ -81,7 +82,7 @@ router.post('/login', async (req, res) => {
       status: true,
       data: {
         user: {
-          id: user.id,
+          _id: user.id,
           email: user.email,
           role: user.role,
           company: user.company

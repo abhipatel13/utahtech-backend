@@ -44,6 +44,7 @@ db.sequelize = sequelize;
 db.asset_hierarchy = require("./asset_hierarchy.js")(sequelize, Sequelize);
 db.task_hazards = require("./task_hazards.js")(sequelize, Sequelize);
 db.task_risks = require("./task_risks.js")(sequelize, Sequelize);
+db.tactics = require("./Tactic.js")(sequelize, Sequelize);
 
 // Import User model directly (it's a class, not a Sequelize model)
 const User = require("./User.js");
