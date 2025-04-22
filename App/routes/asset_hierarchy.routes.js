@@ -6,13 +6,6 @@ const assetHierarchyController = require('../controllers/asset_hierarchy.control
 
 // Debug middleware - place this first
 router.use((req, res, next) => {
-  console.log('Asset Hierarchy Route accessed:', {
-    method: req.method,
-    path: req.path,
-    headers: req.headers,
-    body: req.body,
-    files: req.files
-  });
   next();
 });
 
@@ -28,7 +21,7 @@ const upload = multer({
     }
   },
   limits: {
-    fileSize: 10 * 1024 * 1024 // 10MB limit
+    fileSize: 10 * 1024 * 1024 
   }
 });
 
