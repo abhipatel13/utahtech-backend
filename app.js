@@ -36,7 +36,16 @@ const {
 /* Express Settings and work */
 const app = express();
 
-app.use(cors());
+// Updated CORS configuration
+app.use(cors({
+  origin: ['https://utah-tech.vercel.app', 'http://localhost:3000'],
+  credentials: true,
+  methods: ['GET', 'POST', 'PUT', 'DELETE', 'OPTIONS'],
+  allowedHeaders: ['Content-Type', 'Authorization', 'X-Requested-With', 'Accept']
+}));
+
+// Handle preflight requests
+app.options('*', cors());
 
 const db = require("./App/models");
 
