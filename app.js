@@ -1,12 +1,13 @@
 /* My app modules */
 const createError = require('http-errors');
-// const cron = require("node-cron");
 const express = require('express');
 const path = require('path');
 const cookieParser = require('cookie-parser');
 const logger = require('morgan');
 const sass = require('sass');
 const routes = require('./App/routes');
+const helmet = require('helmet');
+const compression = require('compression');
 
 // Import the router directly
 const taskHazardRoutes = require('./App/routes/task_hazard.routes');
@@ -16,36 +17,63 @@ const tacticRoutes = require('./App/routes/tacticRoutes');
 
 const cors = require('cors');
 
-/* My exports */
-// const {
-//   connection
-// } = require('./App/configs');
-
-/* Middleware */
-const {
-  auth,
-  formValidator
-} = require('./App/middleware');
-
-
-
-// const warehouse = require('./App/routes/warehouse');
-// const user = require('./App/routes/user');
-
-
 /* Express Settings and work */
 const app = express();
 
-// Updated CORS configuration
-app.use(cors({
-  origin: ['https://utah-tech.vercel.app', 'http://localhost:3000'],
+// Add Helmet middleware for security headers
+app.use(helmet());
+
+// Add compression middleware
+app.use(compression());
+
+// Security middleware
+app.use((req, res, next) => {
+  // Force HTTPS in production
+  if (process.env.NODE_ENV === 'production' && !req.secure) {
+    return res.redirect(301, `https://${req.headers.host}${req.url}`);
+  }
+  
+  // Set security headers
+  res.setHeader('X-Content-Type-Options', 'nosniff');
+  res.setHeader('X-Frame-Options', 'DENY');
+  res.setHeader('X-XSS-Protection', '1; mode=block');
+  res.setHeader('Strict-Transport-Security', 'max-age=31536000; includeSubDomains');
+  next();
+});
+
+// CORS Configuration
+const allowedOrigins = process.env.ALLOWED_ORIGINS ? 
+  process.env.ALLOWED_ORIGINS.split(',') : 
+  ['https://utah-tech.vercel.app', 'https://localhost:3000'];
+
+const corsOptions = {
+  origin: function (origin, callback) {
+    if (!origin || allowedOrigins.includes(origin)) {
+      callback(null, true);
+    } else {
+      console.log('Blocked origin:', origin);
+      callback(new Error('Not allowed by CORS'));
+    }
+  },
   credentials: true,
   methods: ['GET', 'POST', 'PUT', 'DELETE', 'OPTIONS'],
-  allowedHeaders: ['Content-Type', 'Authorization', 'X-Requested-With', 'Accept']
-}));
+  allowedHeaders: ['Content-Type', 'Authorization', 'X-Requested-With', 'Accept', 'Origin'],
+  exposedHeaders: ['Access-Control-Allow-Origin']
+};
 
-// Handle preflight requests
-app.options('*', cors());
+app.use(cors(corsOptions));
+app.options('*', cors(corsOptions));
+
+// Request logging middleware
+app.use((req, res, next) => {
+  console.log('Request:', {
+    method: req.method,
+    origin: req.headers.origin,
+    path: req.path,
+    secure: req.secure
+  });
+  next();
+});
 
 const db = require("./App/models");
 
@@ -59,10 +87,8 @@ app.set('views', path.join(__dirname, 'views'));
 app.set('view engine', 'hbs');
 
 app.use(logger('dev'));
-app.use(express.json());
-app.use(express.urlencoded({
-  extended: false
-}));
+app.use(express.json({ limit: '50mb' }));
+app.use(express.urlencoded({ extended: false, limit: '50mb' }));
 app.use(cookieParser());
 
 // SASS middleware configuration
@@ -70,7 +96,7 @@ app.use((req, res, next) => {
   if (req.path.endsWith('.scss') || req.path.endsWith('.sass')) {
     const filePath = path.join(__dirname, 'public', req.path);
     sass.compile(filePath, {
-      sourceMap: true,
+      sourceMap: process.env.NODE_ENV !== 'production',
       style: 'compressed'
     }).then(result => {
       res.setHeader('Content-Type', 'text/css');
@@ -81,7 +107,11 @@ app.use((req, res, next) => {
   }
 });
 
-app.use(express.static(path.join(__dirname, 'public')));
+// Serve static files
+app.use(express.static(path.join(__dirname, 'public'), {
+  maxAge: '1d',
+  etag: true
+}));
 
 // Create uploads directory if it doesn't exist
 const fs = require('fs');
@@ -90,35 +120,34 @@ if (!fs.existsSync(uploadsDir)) {
   fs.mkdirSync(uploadsDir, { recursive: true });
 }
 
-// app.use('/warehouse', warehouse);
-// app.use('/user', user);
-app.get('/', function(req,res){
-  res.send("Success");
-})
+// API routes
+app.get('/', function(req, res) {
+  res.send("API is running");
+});
+
 app.use('/api', routes);
-// Use the routers directly
 app.use('/api/task-hazards', taskHazardRoutes);
 app.use('/api/asset-hierarchy', assetHierarchyRoutes);
 app.use('/api/users', userRoutes);
 app.use('/api/tactics', tacticRoutes);
+
 // catch 404 and forward to error handler
 app.use(function (req, res, next) {
-  next(createError(404, 'The url you have is not available. Please check and try again'));
+  next(createError(404, 'The requested resource was not found'));
 });
 
 // error handler
 app.use(function (err, req, res, next) {
+  // Don't leak error details in production
+  const error = process.env.NODE_ENV === 'production' ? 
+    { message: 'An error occurred' } : 
+    { message: err.message, stack: err.stack };
+
   res.status(err.status || 500);
   res.json({
     status: err.status || 500,
-    message: err.message
+    ...error
   });
-
-  return false;
 });
 
-
 module.exports = app;
-
-
-// https://stackoverflow.com/questions/53437535/disable-cors-in-expressjs
