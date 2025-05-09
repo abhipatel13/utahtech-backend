@@ -44,7 +44,11 @@ app.use((req, res, next) => {
 // CORS Configuration
 const allowedOrigins = process.env.ALLOWED_ORIGINS ? 
   process.env.ALLOWED_ORIGINS.split(',') : 
-  ['https://utah-tech.vercel.app', 'https://localhost:3000'];
+  [
+    'https://utah-tech.vercel.app',
+    'https://18.188.112.65.nip.io',
+    'http://localhost:3003'
+  ];
 
 const corsOptions = {
   origin: function (origin, callback) {
@@ -57,8 +61,7 @@ const corsOptions = {
   },
   credentials: true,
   methods: ['GET', 'POST', 'PUT', 'DELETE', 'OPTIONS'],
-  allowedHeaders: ['Content-Type', 'Authorization', 'X-Requested-With', 'Accept', 'Origin'],
-  exposedHeaders: ['Access-Control-Allow-Origin']
+  allowedHeaders: ['Content-Type', 'Authorization', 'X-Requested-With', 'Accept', 'Origin']
 };
 
 app.use(cors(corsOptions));
