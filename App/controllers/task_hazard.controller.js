@@ -108,23 +108,50 @@ exports.create = async (req, res) => {
 
     // Helper function to convert likelihood and consequence strings to integers
     const convertToInteger = (value) => {
+      console.log("Converting value:", value);
+
+      if (value === undefined || value === null || value === "") {
+        console.log("Empty value, returning default 1");
+        return 1; // Default value for empty inputs
+      }
+      
+      // Maps for create function
       const likelihoodMap = {
         'Very Unlikely': 1,
-        'Unlikely': 2,
-        'Possible': 3,
+        'Slight Chance': 2,
+        'Feasible': 3,
         'Likely': 4,
         'Very Likely': 5
       };
       
       const consequenceMap = {
-        'Negligible': 1,
-        'Minor': 2,
-        'Moderate': 3,
-        'Significant': 4,
-        'Serious': 5
+        'Minor': 1,
+        'Significant': 2,
+        'Serious': 3,
+        'Major': 4,
+        'Catastrophic': 5
       };
       
-      return likelihoodMap[value] || consequenceMap[value] || 1; // Default to 1 if not found
+      // If the value is already a number, return it
+      if (!isNaN(Number(value))) {
+        console.log("Value is already a number:", Number(value));
+        return Number(value);
+      }
+      
+      // Check if value is in our maps
+      if (likelihoodMap[value] !== undefined) {
+        console.log("Found in likelihood map:", likelihoodMap[value]);
+        return likelihoodMap[value];
+      }
+      
+      if (consequenceMap[value] !== undefined) {
+        console.log("Found in consequence map:", consequenceMap[value]);
+        return consequenceMap[value];
+      }
+
+      // If we get here, we couldn't convert properly
+      console.log("Could not convert value, using default 1");
+      return 1; // Default fallback
     };
 
     // Start transaction
@@ -164,6 +191,7 @@ exports.create = async (req, res) => {
           }, { transaction: t })
         )
       );
+      console.log("risks", risks);
 
       return { taskHazard, risks };
     });
@@ -284,28 +312,56 @@ exports.update = async (req, res) => {
 
     // Helper function to convert likelihood and consequence strings to integers
     const convertToInteger = (value) => {
+      console.log("Converting value:", value);
+
+      if (value === undefined || value === null || value === "") {
+        console.log("Empty value, returning default 1");
+        return 1; // Default value for empty inputs
+      }
+      
+      // Maps for update function
       const likelihoodMap = {
         'Very Unlikely': 1,
-        'Unlikely': 2,
-        'Possible': 3,
+        'Slight Chance': 2,
+        'Feasible': 3,
         'Likely': 4,
         'Very Likely': 5
       };
       
       const consequenceMap = {
-        'Negligible': 1,
-        'Minor': 2,
-        'Moderate': 3,
-        'Significant': 4,
-        'Serious': 5
+        'Minor': 1,
+        'Significant': 2,
+        'Serious': 3,
+        'Major': 4,
+        'Catastrophic': 5
       };
       
-      return likelihoodMap[value] || consequenceMap[value] || 1;
+      // If the value is already a number, return it
+      if (!isNaN(Number(value))) {
+        console.log("Value is already a number:", Number(value));
+        return Number(value);
+      }
+      
+      // Check if value is in our maps
+      if (likelihoodMap[value] !== undefined) {
+        console.log("Found in likelihood map:", likelihoodMap[value]);
+        return likelihoodMap[value];
+      }
+      
+      if (consequenceMap[value] !== undefined) {
+        console.log("Found in consequence map:", consequenceMap[value]);
+        return consequenceMap[value];
+      }
+
+      // If we get here, we couldn't convert properly
+      console.log("Could not convert value, using default 1");
+      return 1; // Default fallback
     };
 
     // Start transaction
     const result = await db.sequelize.transaction(async (t) => {
       // Update Task Hazard
+      console.log("req.body", req.body);
       await taskHazard.update({
         date: req.body.date || taskHazard.date,
         time: req.body.time || taskHazard.time,
@@ -329,6 +385,7 @@ exports.update = async (req, res) => {
         });
 
         // Create new risks
+        console.log("req.body.risks", req.body.risks);
         const risks = await Promise.all(
           req.body.risks.map(risk => 
             TaskRisk.create({
@@ -345,6 +402,8 @@ exports.update = async (req, res) => {
             }, { transaction: t })
           )
         );
+
+        console.log("risks", risks);
 
         return { taskHazard, risks };
       }

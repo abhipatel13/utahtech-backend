@@ -13,25 +13,25 @@ const dbConfig = {
 // Test users with different roles
 const users = [
   {
-    email: 'superuser@example.com',
+    email: 'superuser@utahtechnicalservicesllc.com',
     password: 'superuser123',
     role: 'superuser',
     company: 'Utah Tech Services'
   },
   {
-    email: 'admin@example.com',
+    email: 'admin@utahtechnicalservicesllc.com',
     password: 'admin123',
     role: 'admin',
     company: 'Utah Tech Services'
   },
   {
-    email: 'supervisor@example.com',
+    email: 'supervisor@utahtechnicalservicesllc.com',
     password: 'supervisor123',
     role: 'supervisor',
     company: 'Utah Tech Services'
   },
   {
-    email: 'user@example.com',
+    email: 'user@utahtechnicalservicesllc.com',
     password: 'user123',
     role: 'user',
     company: 'Utah Tech Services'
@@ -66,7 +66,6 @@ const seedUsers = async () => {
 
     // Clear existing users
     await connection.execute('DELETE FROM users');
-    console.log('Cleared existing users');
 
     // Create new users
     for (const userData of users) {

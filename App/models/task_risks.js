@@ -28,8 +28,8 @@ module.exports = (sequelize, Sequelize) => {
         const value = this.getDataValue('asIsLikelihood');
         const likelihoodMap = {
           1: 'Very Unlikely',
-          2: 'Unlikely',
-          3: 'Possible',
+          2: 'Slight Chance',
+          3: 'Feasible',
           4: 'Likely',
           5: 'Very Likely'
         };
@@ -42,11 +42,11 @@ module.exports = (sequelize, Sequelize) => {
       get() {
         const value = this.getDataValue('asIsConsequence');
         const consequenceMap = {
-          1: 'Negligible',
-          2: 'Minor',
-          3: 'Moderate',
-          4: 'Significant',
-          5: 'Serious'
+          1: 'Minor',
+          2: 'Significant',
+          3: 'Serious',
+          4: 'Major',
+          5: 'Catastrophic'
         };
         return consequenceMap[value] || value;
       }
@@ -66,8 +66,8 @@ module.exports = (sequelize, Sequelize) => {
         const value = this.getDataValue('mitigatedLikelihood');
         const likelihoodMap = {
           1: 'Very Unlikely',
-          2: 'Unlikely',
-          3: 'Possible',
+          2: 'Slight Chance',
+          3: 'Feasible',
           4: 'Likely',
           5: 'Very Likely'
         };
@@ -80,11 +80,11 @@ module.exports = (sequelize, Sequelize) => {
       get() {
         const value = this.getDataValue('mitigatedConsequence');
         const consequenceMap = {
-          1: 'Negligible',
-          2: 'Minor',
-          3: 'Moderate',
-          4: 'Significant',
-          5: 'Serious'
+          1: 'Minor',
+          2: 'Significant',
+          3: 'Serious',
+          4: 'Major',
+          5: 'Catastrophic'
         };
         return consequenceMap[value] || value;
       }

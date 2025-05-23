@@ -47,8 +47,8 @@ module.exports = (sequelize, Sequelize) => {
       allowNull: false
     },
     status: {
-      type: Sequelize.ENUM('Active', 'Inactive', 'Completed'),
-      defaultValue: 'Active'
+      type: Sequelize.ENUM('Active', 'Inactive', 'Completed', 'Pending', 'Rejected'),
+      defaultValue: 'Pending'
     },
     geoFenceLimit: {
       type: Sequelize.INTEGER,
