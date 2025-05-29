@@ -1,10 +1,12 @@
 const express = require('express');
 const router = express.Router();
 const tactics = require('../controllers/tactic.controller');
-const { authenticateToken, checkPermission } = require('../middleware/auth');
+const { auth, checkPermission } = require('../middleware/auth');
+const { ensureCompanyAccess } = require('../middleware/companyAccess');
 
-// Apply authentication middleware to all routes
-// router.use(authenticateToken);
+// Apply middleware to all routes
+router.use(auth);
+router.use(ensureCompanyAccess('tactics'));
 
 // Create a new Tactic
 router.post('/', tactics.create);

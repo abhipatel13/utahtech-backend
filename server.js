@@ -18,56 +18,24 @@ require('dotenv').config();
 const app = require('./app');
 const debug = require('debug')('inspection-backend:server');
 const http = require('http');
-const https = require('https');
-const fs = require('fs');
-const path = require('path');
 
 /**
  * Get port from environment and store in Express.
  */
-const httpPort = normalizePort(process.env.PORT || '3000');
-const httpsPort = normalizePort(process.env.HTTPS_PORT || '443');
-app.set('port', httpPort);
-app.set('httpsPort', httpsPort);
+const port = normalizePort(process.env.PORT || '3000');
+app.set('port', port);
 
 /**
- * Create HTTP and HTTPS servers.
+ * Create HTTP server.
  */
-const httpServer = http.createServer(app);
-
-// Create HTTPS server only if SSL certificates exist
-let httpsServer;
-try {
-    console.log('Loading SSL certificates from:', {
-        key: process.env.SSL_KEY_PATH,
-        cert: process.env.SSL_CERT_PATH
-    });
-    
-    const sslOptions = {
-        key: fs.readFileSync(process.env.SSL_KEY_PATH),
-        cert: fs.readFileSync(process.env.SSL_CERT_PATH)
-    };
-    httpsServer = https.createServer(sslOptions, app);
-    console.log('SSL certificates loaded successfully');
-} catch (error) {
-    console.error('Error loading SSL certificates:', error.message);
-    console.error('Stack trace:', error.stack);
-}
+const server = http.createServer(app);
 
 /**
- * Listen on provided ports, on all network interfaces.
+ * Listen on provided port, on all network interfaces.
  */
-httpServer.listen(httpPort, () => {
-    console.log(`HTTP Server running on port ${httpPort}`);
+server.listen(port, () => {
+    console.log(`HTTP Server running on port ${port}`);
 });
-
-if (httpsServer) {
-    httpsServer.listen(httpsPort, () => {
-        console.log(`HTTPS Server running on port ${httpsPort}`);
-    });
-} else {
-    console.error('HTTPS server not started due to SSL certificate issues');
-}
 
 /**
  * Normalize a port into a number, string, or false.
@@ -80,25 +48,18 @@ function normalizePort(val) {
 }
 
 // Error handler for HTTP server
-httpServer.on('error', (error) => {
+server.on('error', (error) => {
     console.error('HTTP Server Error:', error);
 });
 
-// Error handler for HTTPS server
-if (httpsServer) {
-    httpsServer.on('error', (error) => {
-        console.error('HTTPS Server Error:', error);
-    });
-}
-
 /**
- * Event listener for HTTP/HTTPS server "listening" event.
+ * Event listener for HTTP server "listening" event.
  */
-function onListening(server, protocol) {
+function onListening(server) {
     const addr = server.address();
     const bind = typeof addr === 'string'
         ? 'pipe ' + addr
         : 'port ' + addr.port;
-    console.log(`${protocol} Server is running on ${bind}`);
+    console.log(`HTTP Server is running on ${bind}`);
     debug('Listening on ' + bind);
 }

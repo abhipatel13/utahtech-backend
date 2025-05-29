@@ -3,6 +3,11 @@ const router = express.Router();
 const multer = require('multer');
 const path = require('path');
 const assetHierarchyController = require('../controllers/asset_hierarchy.controller');
+const { auth } = require('../middleware/auth');
+const { ensureCompanyAccess } = require('../middleware/companyAccess');
+
+router.use(auth);
+router.use(ensureCompanyAccess('asset_hierarchy'));
 
 // Debug middleware - place this first
 router.use((req, res, next) => {

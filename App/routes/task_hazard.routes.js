@@ -1,6 +1,12 @@
 const express = require("express");
 const router = express.Router();
 const task_hazards = require("../controllers/task_hazard.controller.js");
+const { auth } = require('../middleware/auth');
+const { ensureCompanyAccess } = require('../middleware/companyAccess');
+
+// Apply middleware to all routes
+router.use(auth);
+router.use(ensureCompanyAccess('task_hazards'));
 
 // Create a new Task Hazard
 router.post("/", task_hazards.create);

@@ -6,17 +6,21 @@ const { v4: uuidv4 } = require('uuid');
 // Create a new Tactic
 exports.create = async (req, res) => {
   try {
+    if (!req.user || !req.user.company) {
+      return res.status(401).json({ message: 'Unauthorized: User or company not found' });
+    }
+
     const { analysisName, location, status, ...assetDetails } = req.body;
     console.log(req.body);
     
     // Create the tactic with all fields
     const tactic = await db.tactics.create({
       id: uuidv4(),
+      company: req.user.company,
       analysisName,
       location,
       status,
       ...assetDetails,
-     
     });
     
     res.status(201).json({
@@ -32,7 +36,19 @@ exports.create = async (req, res) => {
 // Retrieve all Tactics
 exports.findAll = async (req, res) => {
   try {
-    const tactics = await db.tactics.findAll({});
+    if (!req.user || !req.user.company) {
+      return res.status(401).json({ 
+        status: false,
+        message: 'Unauthorized: User or company not found' 
+      });
+    }
+
+    const tactics = await db.tactics.findAll({
+      where: {
+        company: req.user.company
+      }
+    });
+    
     console.log("tactics", tactics);
     res.json({
       status: true,

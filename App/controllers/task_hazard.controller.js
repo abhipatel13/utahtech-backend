@@ -28,9 +28,18 @@ const generateNextTaskId = async () => {
 // Create and Save a new Task Hazard
 exports.create = async (req, res) => {
   try {
-    // Validate request
-    console.log('Received request body:', req.body);
-    
+    // Generate task ID
+    const taskId = await generateNextTaskId();
+
+    // Get company from the authenticated user
+    const userCompany = req.user.company;
+    if (!userCompany) {
+      return res.status(400).json({
+        status: false,
+        message: "User's company information is missing"
+      });
+    }
+
     // Check each required field and collect missing fields
     const missingFields = [];
     const requiredFields = [
@@ -103,9 +112,6 @@ exports.create = async (req, res) => {
       });
     }
 
-    // Generate the next task ID
-    const taskId = await generateNextTaskId();
-
     // Helper function to convert likelihood and consequence strings to integers
     const convertToInteger = (value) => {
       console.log("Converting value:", value);
@@ -160,7 +166,8 @@ exports.create = async (req, res) => {
       console.log("This is the assetSystem", req.body);
       
       const taskHazard = await TaskHazard.create({
-        id: taskId, // Use the generated task ID
+        id: taskId,
+        company: userCompany,
         date: req.body.date,
         time: req.body.time,
         scopeOfWork: req.body.scopeOfWork,
@@ -215,12 +222,19 @@ exports.create = async (req, res) => {
 // Retrieve all Task Hazards from the database
 exports.findAll = async (req, res) => {
   try {
+    // Get company from the authenticated user
+    const userCompany = req.user.company;
+
     const taskHazards = await TaskHazard.findAll({
+      where: {
+        company: userCompany
+      },
       include: [{
         model: TaskRisk,
         as: 'risks'
       }]
     });
+    
     res.status(200).json({
       status: true,
       data: taskHazards
@@ -236,7 +250,14 @@ exports.findAll = async (req, res) => {
 // Find a single Task Hazard with an id
 exports.findOne = async (req, res) => {
   try {
-    const taskHazard = await TaskHazard.findByPk(req.params.id, {
+    // Get company from the authenticated user
+    const userCompany = req.user.company;
+
+    const taskHazard = await TaskHazard.findOne({
+      where: {
+        id: req.params.id,
+        company: userCompany
+      },
       include: [{
         model: TaskRisk,
         as: 'risks'
@@ -267,15 +288,16 @@ exports.update = async (req, res) => {
   try {
     const id = req.params.id;
     
-    // Check if task hazard exists
-    const taskHazard = await TaskHazard.findByPk(id, {
-      include: [{
-        model: TaskRisk,
-        as: 'risks'
-      }]
-    });
+    // Get company from the authenticated user
+    const userCompany = req.user.company;
 
-    console.log("This is the taskHazard", taskHazard);
+    // Check if task hazard exists and belongs to the user's company
+    const taskHazard = await TaskHazard.findOne({
+      where: {
+        id: id,
+        company: userCompany
+      }
+    });
 
     if (!taskHazard) {
       return res.status(404).json({
@@ -363,17 +385,17 @@ exports.update = async (req, res) => {
       // Update Task Hazard
       console.log("req.body", req.body);
       await taskHazard.update({
-        date: req.body.date || taskHazard.date,
-        time: req.body.time || taskHazard.time,
-        scopeOfWork: req.body.scopeOfWork || taskHazard.scopeOfWork,
+        date: req.body.date,
+        time: req.body.time,
+        scopeOfWork: req.body.scopeOfWork,
         assetSystem: req.body.assetSystem || taskHazard.assetSystem,
-        systemLockoutRequired: req.body.systemLockoutRequired !== undefined ? req.body.systemLockoutRequired : taskHazard.systemLockoutRequired,
-        trainedWorkforce: req.body.trainedWorkforce || taskHazard.trainedWorkforce,
-        individual: req.body.individual || taskHazard.individual,
-        supervisor: req.body.supervisor || taskHazard.supervisor,
-        location: req.body.location || taskHazard.location,
-        status: req.body.status || taskHazard.status,
-        geoFenceLimit: req.body.geoFenceLimit !== undefined ? req.body.geoFenceLimit : taskHazard.geoFenceLimit
+        systemLockoutRequired: req.body.systemLockoutRequired,
+        trainedWorkforce: req.body.trainedWorkforce,
+        individual: req.body.individual,
+        supervisor: req.body.supervisor,
+        location: req.body.location,
+        status: req.body.status,
+        geoFenceLimit: req.body.geoFenceLimit
       }, { transaction: t });
 
       // Update associated risks if provided
@@ -430,8 +452,17 @@ exports.delete = async (req, res) => {
   try {
     const id = req.params.id;
     
-    // Check if task hazard exists
-    const taskHazard = await TaskHazard.findByPk(id);
+    // Get company from the authenticated user
+    const userCompany = req.user.company;
+    
+    // Check if task hazard exists and belongs to the user's company
+    const taskHazard = await TaskHazard.findOne({
+      where: {
+        id: id,
+        company: userCompany
+      }
+    });
+
     if (!taskHazard) {
       return res.status(404).json({
         status: false,

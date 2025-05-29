@@ -1,8 +1,12 @@
 const { Sequelize } = require('sequelize');
 const { Umzug, SequelizeStorage } = require('umzug');
-const config = require('./config/config.js');
+const config = require('./App/configs/db.config.js');
 
-const sequelize = new Sequelize(config.development);
+const sequelize = new Sequelize(config.DB, config.USER, config.PASSWORD, {
+  host: config.HOST,
+  dialect: config.dialect,
+  pool: config.pool
+});
 
 const umzug = new Umzug({
   migrations: { glob: 'migrations/*.js' },

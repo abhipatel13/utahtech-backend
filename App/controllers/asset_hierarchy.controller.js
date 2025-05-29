@@ -243,6 +243,8 @@ exports.findAll = async (req, res) => {
     const assets = await AssetHierarchy.findAll({
       order: [['level', 'ASC'], ['name', 'ASC']]
     });
+
+    console.log("assets", assets);
     
     res.status(200).json({
       status: true,

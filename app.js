@@ -28,16 +28,10 @@ app.use(compression());
 
 // Security middleware
 app.use((req, res, next) => {
-  // Force HTTPS in production
-  if (process.env.NODE_ENV === 'production' && !req.secure) {
-    return res.redirect(301, `https://${req.headers.host}${req.url}`);
-  }
-  
   // Set security headers
   res.setHeader('X-Content-Type-Options', 'nosniff');
   res.setHeader('X-Frame-Options', 'DENY');
   res.setHeader('X-XSS-Protection', '1; mode=block');
-  res.setHeader('Strict-Transport-Security', 'max-age=31536000; includeSubDomains');
   next();
 });
 
@@ -45,8 +39,11 @@ app.use((req, res, next) => {
 const allowedOrigins = process.env.ALLOWED_ORIGINS ? 
   process.env.ALLOWED_ORIGINS.split(',') : 
   [
-    'https://utah-tech.vercel.app',
-    'https://18.188.112.65.nip.io',
+    'http://localhost:3000',
+    'http://localhost:3001',
+    'http://localhost:3002',
+    'http://127.0.0.1:3000',
+    'http://127.0.0.1:3001',
     'http://localhost:3003'
   ];
 
@@ -61,10 +58,16 @@ const corsOptions = {
   },
   credentials: true,
   methods: ['GET', 'POST', 'PUT', 'DELETE', 'OPTIONS'],
-  allowedHeaders: ['Content-Type', 'Authorization', 'X-Requested-With', 'Accept', 'Origin']
+  allowedHeaders: ['Content-Type', 'Authorization', 'X-Requested-With', 'Accept', 'Origin'],
+  exposedHeaders: ['Authorization'],
+  preflightContinue: false,
+  optionsSuccessStatus: 204
 };
 
+// Apply CORS before other middleware
 app.use(cors(corsOptions));
+
+// Handle preflight requests explicitly
 app.options('*', cors(corsOptions));
 
 // Request logging middleware
@@ -72,8 +75,7 @@ app.use((req, res, next) => {
   console.log('Request:', {
     method: req.method,
     origin: req.headers.origin,
-    path: req.path,
-    secure: req.secure
+    path: req.path
   });
   next();
 });
@@ -145,6 +147,15 @@ app.use(function (err, req, res, next) {
   const error = process.env.NODE_ENV === 'production' ? 
     { message: 'An error occurred' } : 
     { message: err.message, stack: err.stack };
+
+  // Handle authentication errors
+  if (err.name === 'UnauthorizedError' || err.name === 'TokenExpiredError') {
+    return res.status(401).json({
+      status: false,
+      message: err.name === 'TokenExpiredError' ? 'Session expired. Please login again.' : 'Invalid token',
+      code: err.name
+    });
+  }
 
   res.status(err.status || 500);
   res.json({

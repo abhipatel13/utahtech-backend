@@ -8,45 +8,79 @@ const bcrypt = require("bcrypt");
 const passwordResetToken = models.reset_passwords;
 const crypto = require('crypto');
 const transporter = require('../helper/mail.helper.js');
+
 module.exports.login = async (req, res) => {
-	const body = _.pick(req.body, ['email', 'password']);
+	const body = _.pick(req.body, ['email', 'password', 'company']);
 
 	if (
 		body.email === undefined ||
 		body.email === '' ||
 		body.password === undefined ||
-		body.password === ''
+		body.password === '' ||
+		body.company === undefined ||
+		body.company === ''
 	) {
-		return res.send({
-			status: 0,
-			message: 'All fields are required',
-			data: {},
+		return res.status(400).json({
+			status: false,
+			message: 'Email, password, and company are required',
+			data: {}
 		});
 	}
-	try {
 
-		var matched_user = await User.findOne({ where :{email: body.email }});
-		if(matched_user && !matched_user.is_deleted){
-            let passwordHash = matched_user.password;
-            if(bcrypt.compareSync(body.password,passwordHash)){
-				// req.session.email = body.email;
-				const token = generateAccessToken(matched_user.id.toString());
-				return  res.header('Authorization', token).send({			
-					status: 200,
-					message: 'Login successfully',
-					data: matched_user});
-            }
-            else{
-				return  res.status(403).send({status : 403, message : "Invalid Password"});
-            }
-        }
-        else{
-           return  res.status(403).send({status : 403, message : "User not exist with this email"});
-        }
+	try {
+		// Find user by both email and company
+		const matched_user = await User.findOne({ 
+			where: {
+				email: body.email,
+				company: body.company,
+				is_deleted: '0'  // Only active users
+			}
+		});
+
+		if (!matched_user) {
+			return res.status(401).json({
+				status: false,
+				message: "Invalid email or company name"
+			});
+		}
+
+		// Verify password
+		let passwordHash = matched_user.password;
+		if (bcrypt.compareSync(body.password, passwordHash)) {
+			const token = generateAccessToken(matched_user.id.toString());
+			
+			// Return user data without sensitive information
+			return res.header('Authorization', token).json({
+				status: true,
+				message: 'Login successful',
+				data: {
+					user: {
+						id: matched_user.id,
+						email: matched_user.email,
+						name: matched_user.name,
+						company: matched_user.company,
+						role: matched_user.role,
+						department: matched_user.department,
+						business_unit: matched_user.business_unit,
+						plant: matched_user.plant,
+						user_type: matched_user.user_type
+					},
+					token
+				}
+			});
+		} else {
+			return res.status(401).json({
+				status: false,
+				message: "Invalid password"
+			});
+		}
 	} catch (error) {
-		// logger.error(error.message);
-		console.log(error.message);
-		return res.send({ status: 0, message: error.message, data: {} });
+		console.error('Login error:', error);
+		return res.status(500).json({ 
+			status: false, 
+			message: "Internal server error",
+			error: error.message 
+		});
 	}
 };
 
@@ -211,4 +245,65 @@ module.exports.register = async (req, res) => {
 		console.log(e.message);
 		return res.json({ status: 0, message: e.message, data: {} });
 	}
+};
+
+// Add new function to find user by email and company
+module.exports.findUserByEmailAndCompany = async (req, res) => {
+    try {
+        const { email, company } = req.body;
+
+        if (!email || !company) {
+            return res.status(400).json({
+                status: false,
+                message: 'Email and company are required'
+            });
+        }
+
+        console.log('Searching for user with email:', email, 'and company:', company);
+
+        // Try to find user in the Sequelize users model
+        const user = await User.findOne({
+            where: {
+                email: email,
+                company: company,
+                is_deleted: '0'  // Only find active users
+            },
+            attributes: ['id', 'email', 'name', 'company', 'department', 'role', 'business_unit', 'plant', 'user_type']
+        });
+
+        if (!user) {
+            console.log('No user found with email:', email, 'and company:', company);
+            return res.status(404).json({
+                status: false,
+                message: 'No user found with the provided email and company'
+            });
+        }
+
+        console.log('User found:', user.id);
+
+        // Return user data without sensitive information
+        return res.status(200).json({
+            status: true,
+            message: 'User found successfully',
+            data: {
+                id: user.id,
+                email: user.email,
+                name: user.name,
+                company: user.company,
+                department: user.department,
+                role: user.role,
+                business_unit: user.business_unit,
+                plant: user.plant,
+                user_type: user.user_type
+            }
+        });
+
+    } catch (error) {
+        console.error('Error in findUserByEmailAndCompany:', error);
+        return res.status(500).json({
+            status: false,
+            message: 'Internal server error',
+            error: error.message
+        });
+    }
 };

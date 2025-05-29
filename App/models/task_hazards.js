@@ -5,6 +5,14 @@ module.exports = (sequelize, Sequelize) => {
       primaryKey: true,
       allowNull: false
     },
+    company: {
+      type: Sequelize.STRING(150),
+      allowNull: false,
+      references: {
+        model: 'users',
+        key: 'company'
+      }
+    },
     date: {
       type: Sequelize.DATEONLY,
       allowNull: false

@@ -5,6 +5,14 @@ module.exports = (sequelize, Sequelize) => {
       primaryKey: true,
       allowNull: false
     },
+    company: {
+      type: Sequelize.STRING(150),
+      allowNull: false,
+      references: {
+        model: 'users',
+        key: 'company'
+      }
+    },
     analysis_name: {
       type: Sequelize.STRING,
       allowNull: false

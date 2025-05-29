@@ -3,6 +3,7 @@ const router = express.Router();
 const jwt = require('jsonwebtoken');
 const User = require('../models/User');
 const { auth, checkRole } = require('../middleware/auth');
+const authController = require('../controller/authController');
 
 // Register new user (admin only)
 router.post('/register', auth, checkRole(['superuser', 'admin']), async (req, res) => {
@@ -130,6 +131,11 @@ router.get('/profile', auth, async (req, res) => {
     console.error('Profile error:', error);
     res.status(500).json({ error: error.message });
   }
+});
+
+// Add new route for finding user by email and company
+router.post('/find-user', async (req, res) => {
+    await authController.findUserByEmailAndCompany(req, res);
 });
 
 module.exports = router;

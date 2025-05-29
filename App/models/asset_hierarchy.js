@@ -5,6 +5,14 @@ module.exports = (sequelize, Sequelize) => {
       primaryKey: true,
       allowNull: false
     },
+    company: {
+      type: Sequelize.STRING(150),
+      allowNull: true,
+      references: {
+        model: 'users',
+        key: 'company'
+      }
+    },
     internalId: {
       type: Sequelize.STRING,  // CMMS Internal ID
       field: 'internal_id',
