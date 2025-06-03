@@ -31,7 +31,8 @@
     "nodemailer": "^6.4.16",
     "sass": "^1.69.7",
     "sequelize": "^6.3.5",
-    "umzug": "^3.8.2"
+    "umzug": "^3.8.2",
+    "uuid": "^11.1.0"
   },
   "devDependencies": {
     "nodemon": "^3.0.2",

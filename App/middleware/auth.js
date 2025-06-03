@@ -3,14 +3,9 @@ const User = require('../models/User');
 
 const auth = async (req, res, next) => {
   try {
-    console.log('Request Headers:', req.headers);
-    console.log('Authorization Header:', req.header('Authorization'));
-    
     const token = req.header('Authorization')?.replace('Bearer ', '');
-    console.log('Extracted Token:', token);
     
     if (!token) {
-      console.log('Token is missing or undefined');
       return res.status(401).json({ 
         status: false,
         message: 'No token provided. Please include Authorization: Bearer <token> in headers',
@@ -19,12 +14,8 @@ const auth = async (req, res, next) => {
     }
 
     try {
-      console.log("Token being verified:", token);
-      console.log("JWT_SECRET:", process.env.JWT_SECRET);
       const decoded = jwt.verify(token, process.env.JWT_SECRET);
-      console.log("Decoded token:", decoded);
       const user = await User.findById(decoded.userId);
-      console.log("User found:", user ? user.id : 'No user found');
       
       if (!user) {
         return res.status(401).json({ 
@@ -38,14 +29,12 @@ const auth = async (req, res, next) => {
       next();
     } catch (error) {
       if (error.name === 'TokenExpiredError') {
-        console.log("Token expired error:", error);
         return res.status(401).json({ 
           status: false,
           message: 'Session expired. Please login again.',
           code: 'TOKEN_EXPIRED'
         });
       }
-      console.error('Token verification error:', error);
       throw error;
     }
   } catch (error) {

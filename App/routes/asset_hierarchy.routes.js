@@ -54,6 +54,7 @@ const handleError = (err, req, res, next) => {
 router.post('/', assetHierarchyController.create);
 router.post('/upload-csv', upload.single('file'), handleError, assetHierarchyController.uploadCSV);
 router.get('/', assetHierarchyController.findAll);
+router.get('/upload-history', assetHierarchyController.getUploadHistory);
 router.get('/:id', assetHierarchyController.findOne);
 
 module.exports = router; 

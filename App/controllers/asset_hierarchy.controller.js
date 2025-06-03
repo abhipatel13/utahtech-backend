@@ -114,6 +114,20 @@ exports.uploadCSV = async (req, res) => {
       return res.status(400).json({ success: false, message: 'No file uploaded' });
     }
 
+    // Create file upload record
+    const fileUpload = await db.file_uploads.create({
+      fileName: req.file.filename || `${Date.now()}-${req.file.originalname}`,
+      originalName: req.file.originalname,
+      fileType: req.file.mimetype,
+      fileSize: req.file.size,
+      uploadedBy: req.user.id,
+      company: req.user.company,
+      status: 'uploading'  // Explicitly set initial status
+    }, { 
+      transaction: t,
+      fields: ['fileName', 'originalName', 'fileType', 'fileSize', 'uploadedBy', 'company', 'status']
+    });
+
     // Parse CSV from buffer directly
     const csvString = req.file.buffer.toString('utf-8');
     const assets = csv.parse(csvString, {
@@ -121,80 +135,144 @@ exports.uploadCSV = async (req, res) => {
       skip_empty_lines: true
     });
 
-    // First, remove all parent relationships
-    await AssetHierarchy.update(
-      { parent: null },
-      { 
-        where: {}, // Add empty where clause to update all records
-        transaction: t 
-      }
-    );
-
-    // Then delete all assets
-    await AssetHierarchy.destroy({
-      where: {},
+    // Find all assets that are referenced by task hazards
+    const referencedAssets = await TaskHazards.findAll({
+      attributes: ['assetSystem'],
+      group: ['assetSystem'],
       transaction: t
     });
 
-    // Create all assets without parent relationships first
-    const assetMap = new Map();
-    const createdAssets = [];
-    for (const asset of assets) {
-      // Generate a unique ID based on timestamp and CMMS Internal ID
-      const timestamp = Date.now();
-      const uniqueId = `${asset['CMMS Internal ID']}-${timestamp}`;
-      
-      // Use Functional Location Description as name, or fallback to Functional Location
-      const assetName = asset['Functional Location Description'] || asset['Functional Location'] || 'Unnamed Asset';
+    const referencedAssetIds = new Set(referencedAssets.map(a => a.assetSystem));
 
-      const newAsset = await AssetHierarchy.create({
-        id: uniqueId,
-        name: assetName,
-        maintenancePlant: asset['Maintenance Plant'] || null,
-        cmmsInternalId: asset['CMMS Internal ID'] || null,
-        functionalLocation: asset['Functional Location'] || null,
-        parent: null, // Set parent to null initially
-        cmmsSystem: asset['CMMS System'] || null,
-        siteReferenceName: asset['Site Reference Name'] || null,
-        functionalLocationDesc: asset['Functional Location Description'] || null,
-        functionalLocationLongDesc: asset['Functional Location Long Description'] || null,
-        objectType: asset['Object Type'] || null,
+    // Get all existing assets
+    const existingAssets = await AssetHierarchy.findAll({
+      transaction: t
+    });
+
+    const existingAssetMap = new Map(existingAssets.map(asset => [asset.id, asset]));
+
+    // Create a map for the new assets from CSV
+    const newAssetMap = new Map();
+    for (const asset of assets) {
+      const functionalLocation = asset['Functional Location'];
+      if (!functionalLocation) {
+        throw new Error('Functional Location is required for all assets');
+      }
+
+      newAssetMap.set(functionalLocation, {
+        id: functionalLocation,
+        name: asset['Description'] || functionalLocation,
+        cmmsInternalId: asset['CMMS Internal ID'] || functionalLocation,
+        functionalLocation: functionalLocation,
+        functionalLocationDesc: asset['Description'] || functionalLocation,
+        functionalLocationLongDesc: asset['Long Description'] || asset['Description'] || functionalLocation,
+        maintenancePlant: asset['Maintenance Plant'] || 'Default Plant',
+        cmmsSystem: asset['CMMS System'] || 'Default System',
+        siteReferenceName: asset['Site Reference Name'] || 'Default Site',
+        objectType: asset['Object Type'] || 'Equipment',
         systemStatus: asset['System Status'] || 'Active',
         make: asset['Make'] || null,
         manufacturer: asset['Manufacturer'] || null,
         serialNumber: asset['Serial Number'] || null,
-        description: asset['Asset Description'] || asset['Functional Location Description'] || null,
-        level: 1 // Set initial level
-      }, { transaction: t });
-
-      createdAssets.push(newAsset);
-      // Store the asset in the map using functional location as key
-      assetMap.set(asset['Functional Location'], newAsset);
+        parent: asset['Parent'] || null
+      });
     }
 
-    // Update parent relationships
-    for (const asset of assets) {
-      const parentLocation = asset['Parent'];
-      if (parentLocation && assetMap.has(parentLocation)) {
-        const childAsset = assetMap.get(asset['Functional Location']);
-        const parentAsset = assetMap.get(parentLocation);
-        if (childAsset && parentAsset) {
-          await childAsset.update({
-            parent: parentAsset.id
-          }, { 
-            where: { id: childAsset.id },
-            transaction: t 
-          });
-        }
+    // Step 1: Nullify all parent relationships first
+    await AssetHierarchy.update(
+      { parent: null },
+      { 
+        where: {},
+        transaction: t 
+      }
+    );
+
+    // Step 2: Delete assets that are not in the new set and not referenced
+    // We need to do this in a way that respects the hierarchy
+    const assetsToDelete = [];
+    for (const [id, asset] of existingAssetMap) {
+      if (!newAssetMap.has(id) && !referencedAssetIds.has(id)) {
+        assetsToDelete.push(id);
       }
     }
 
-    // Calculate levels based on parent relationships
-    const calculateLevels = async (asset, level) => {
-      await asset.update({ level }, { 
-        where: { id: asset.id },
-        transaction: t 
+    if (assetsToDelete.length > 0) {
+      await AssetHierarchy.destroy({
+        where: {
+          id: assetsToDelete
+        },
+        transaction: t
       });
+    }
+
+    // Step 3: Update or create assets
+    const assetMap = new Map();
+    const createdAssets = [];
+
+    for (const [id, assetData] of newAssetMap) {
+      let asset;
+      
+      if (existingAssetMap.has(id)) {
+        // Update existing asset
+        asset = existingAssetMap.get(id);
+        await asset.update({
+          name: assetData.name,
+          cmmsInternalId: assetData.cmmsInternalId,
+          functionalLocation: assetData.functionalLocation,
+          functionalLocationDesc: assetData.functionalLocationDesc,
+          functionalLocationLongDesc: assetData.functionalLocationLongDesc,
+          maintenancePlant: assetData.maintenancePlant,
+          cmmsSystem: assetData.cmmsSystem,
+          siteReferenceName: assetData.siteReferenceName,
+          objectType: assetData.objectType,
+          systemStatus: assetData.systemStatus,
+          make: assetData.make,
+          manufacturer: assetData.manufacturer,
+          serialNumber: assetData.serialNumber,
+          level: 0 // Will be recalculated later
+        }, { transaction: t });
+      } else {
+        // Create new asset
+        asset = await AssetHierarchy.create({
+          id: assetData.id,
+          name: assetData.name,
+          cmmsInternalId: assetData.cmmsInternalId,
+          functionalLocation: assetData.functionalLocation,
+          functionalLocationDesc: assetData.functionalLocationDesc,
+          functionalLocationLongDesc: assetData.functionalLocationLongDesc,
+          maintenancePlant: assetData.maintenancePlant,
+          cmmsSystem: assetData.cmmsSystem,
+          siteReferenceName: assetData.siteReferenceName,
+          objectType: assetData.objectType,
+          systemStatus: assetData.systemStatus,
+          make: assetData.make,
+          manufacturer: assetData.manufacturer,
+          serialNumber: assetData.serialNumber,
+          level: 0,
+          parent: null // Will be set in the next step
+        }, { transaction: t });
+      }
+
+      assetMap.set(id, asset);
+      createdAssets.push(asset);
+    }
+
+    // Step 4: Update parent relationships
+    // We do this after all assets are created/updated to ensure all parents exist
+    for (const [id, assetData] of newAssetMap) {
+      const asset = assetMap.get(id);
+      const parentId = assetData.parent;
+      
+      if (parentId && assetMap.has(parentId)) {
+        await asset.update({
+          parent: parentId
+        }, { transaction: t });
+      }
+    }
+
+    // Step 5: Calculate levels based on parent relationships
+    const calculateLevels = async (asset, level) => {
+      await asset.update({ level }, { transaction: t });
       const children = await AssetHierarchy.findAll({
         where: { parent: asset.id },
         transaction: t
@@ -220,14 +298,30 @@ exports.uploadCSV = async (req, res) => {
       transaction: t
     });
 
+    // Update file upload status to completed
+    await fileUpload.update({
+      status: 'completed'
+    }, { transaction: t });
+
     await t.commit();
     res.json({ 
       success: true, 
       message: 'CSV processed successfully',
-      data: finalAssets
+      data: finalAssets,
+      fileUpload: fileUpload
     });
   } catch (error) {
-    await t.rollback();
+    // Update file upload status to error and ensure it's saved
+    try {
+      await fileUpload.update({
+        status: 'error'
+      });
+      await t.rollback();
+    } catch (updateError) {
+      console.error('Error updating file status:', updateError);
+      await t.rollback();
+    }
+    
     console.error('Error in uploadCSV:', error);
     res.status(400).json({ 
       success: false, 
@@ -287,6 +381,43 @@ exports.findOne = async (req, res) => {
     res.status(500).json({
       status: false,
       message: error.message || "Error retrieving Asset with id " + req.params.id
+    });
+  }
+};
+
+// Get upload history
+exports.getUploadHistory = async (req, res) => {
+  try {
+    const uploads = await db.file_uploads.findAll({
+      where: {
+        company: req.user.company
+      },
+      include: [{
+        model: db.users,
+        as: 'uploader',
+        attributes: ['name', 'email']
+      }],
+      order: [['createdAt', 'DESC']],
+      limit: 10 // Limit to last 10 uploads
+    });
+
+    res.status(200).json({
+      status: true,
+      data: uploads.map(upload => ({
+        id: upload.id,
+        fileName: upload.originalName,
+        fileType: upload.fileType,
+        fileSize: upload.fileSize,
+        status: upload.status,
+        uploadedBy: upload.uploader?.name || 'Unknown',
+        uploadedAt: upload.createdAt
+      }))
+    });
+  } catch (error) {
+    console.error('Error fetching upload history:', error);
+    res.status(500).json({
+      status: false,
+      message: error.message || "Some error occurred while retrieving upload history."
     });
   }
 }; 

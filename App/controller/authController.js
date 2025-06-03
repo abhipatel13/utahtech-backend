@@ -278,9 +278,6 @@ module.exports.findUserByEmailAndCompany = async (req, res) => {
                 message: 'No user found with the provided email and company'
             });
         }
-
-        console.log('User found:', user.id);
-
         // Return user data without sensitive information
         return res.status(200).json({
             status: true,

@@ -61,10 +61,10 @@ db.task_risks.belongsTo(db.task_hazards, {
   as: 'hazard'
 });
 
-// db.task_hazards.belongsTo(db.asset_heirarchies, {
-  //   foreignKey: 'assetSystem',
-  //   as: 'asset'
-  // });
+db.task_hazards.belongsTo(db.asset_hierarchy, {
+  foreignKey: 'assetSystem',
+  as: 'asset'
+});
 
 module.exports = db;
 

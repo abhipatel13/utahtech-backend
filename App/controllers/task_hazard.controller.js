@@ -4,12 +4,55 @@ const TaskRisk = db.task_risks;
 const AssetHierarchy = db.asset_hierarchy;
 const { Op } = require("sequelize");
 
-// Function to generate the next task ID
-const generateNextTaskId = async () => {
+// Helper function to convert likelihood and consequence strings to integers
+const convertToInteger = (value) => {
+  if (value === undefined || value === null || value === "") {
+    return 1; // Default value for empty inputs
+  }
+  
+  // Maps for conversion
+  const likelihoodMap = {
+    'Very Unlikely': 1,
+    'Slight Chance': 2,
+    'Feasible': 3,
+    'Likely': 4,
+    'Very Likely': 5
+  };
+  
+  const consequenceMap = {
+    'Minor': 1,
+    'Significant': 2,
+    'Serious': 3,
+    'Major': 4,
+    'Catastrophic': 5
+  };
+  
+  // If the value is already a number, return it
+  if (!isNaN(Number(value))) {
+    return Number(value);
+  }
+  
+  // Check if value is in our maps
+  if (likelihoodMap[value] !== undefined) {
+    return likelihoodMap[value];
+  }
+  
+  if (consequenceMap[value] !== undefined) {
+    return consequenceMap[value];
+  }
+
+  // If we get here, we couldn't convert properly
+  return 1; // Default fallback
+};
+
+// Function to generate the next task ID with locking to prevent duplicates
+const generateNextTaskId = async (transaction) => {
   try {
-    // Get the latest task hazard
+    // Get the latest task hazard with a lock to prevent concurrent access
     const latestTask = await TaskHazard.findOne({
-      order: [['id', 'DESC']]
+      order: [['id', 'DESC']],
+      lock: true,
+      transaction
     });
 
     if (!latestTask) {
@@ -18,7 +61,32 @@ const generateNextTaskId = async () => {
 
     // Extract the number from the latest ID (e.g., 'TZ1' -> 1)
     const lastNumber = parseInt(latestTask.id.replace('TZ', ''));
-    return `TZ${lastNumber + 1}`;
+    
+    // Verify the generated ID doesn't exist
+    const nextId = `TZ${lastNumber + 1}`;
+    const existingTask = await TaskHazard.findByPk(nextId, { transaction });
+    
+    if (existingTask) {
+      // If ID exists, find the next available number
+      const allTasks = await TaskHazard.findAll({
+        attributes: ['id'],
+        order: [['id', 'ASC']],
+        transaction
+      });
+      
+      const usedNumbers = new Set(
+        allTasks.map(task => parseInt(task.id.replace('TZ', '')))
+      );
+      
+      let nextNumber = 1;
+      while (usedNumbers.has(nextNumber)) {
+        nextNumber++;
+      }
+      
+      return `TZ${nextNumber}`;
+    }
+    
+    return nextId;
   } catch (error) {
     console.error('Error generating task ID:', error);
     throw new Error('Failed to generate task ID');
@@ -27,13 +95,19 @@ const generateNextTaskId = async () => {
 
 // Create and Save a new Task Hazard
 exports.create = async (req, res) => {
+  let transaction;
+  
   try {
-    // Generate task ID
-    const taskId = await generateNextTaskId();
+    // Start transaction
+    transaction = await db.sequelize.transaction();
+    
+    // Generate task ID within the transaction
+    const taskId = await generateNextTaskId(transaction);
 
     // Get company from the authenticated user
     const userCompany = req.user.company;
     if (!userCompany) {
+      await transaction.rollback();
       return res.status(400).json({
         status: false,
         message: "User's company information is missing"
@@ -58,8 +132,6 @@ exports.create = async (req, res) => {
       }
     });
 
-    console.log('Missing fields:', req.body.risks);
-
     // Check if risks array exists and is not empty
     if (!req.body.risks || !Array.isArray(req.body.risks) || req.body.risks.length === 0) {
       missingFields.push('Risks (at least one risk is required)');
@@ -67,6 +139,7 @@ exports.create = async (req, res) => {
 
     // If there are missing fields, return detailed error
     if (missingFields.length > 0) {
+      await transaction.rollback();
       return res.status(400).json({
         status: false,
         message: "Missing required fields",
@@ -78,140 +151,79 @@ exports.create = async (req, res) => {
     }
 
     // Check if asset system exists
-    try {
-      const assetSystem = await AssetHierarchy.findOne({
-        where: {
-          [Op.or]: [
-            { id: req.body.assetSystem },
-            { name: req.body.assetSystem }
-          ]
-        }
-      });
-      console.log('Asset system:', req.body.assetSystem, assetSystem);
-
-      if (!assetSystem) {
-        return res.status(404).json({
-          status: false,
-          message: "Asset system not found",
-          details: {
-            searchedValue: req.body.assetSystem,
-            availableAssets: await AssetHierarchy.findAll({
-              attributes: ['id', 'name'],
-              limit: 5
-            })
-          }
-        });
+    const assetSystem = await AssetHierarchy.findOne({
+      where: {
+        [Op.or]: [
+          { id: req.body.assetSystem },
+          { name: req.body.assetSystem }
+        ]
       }
-      console.log('Asset system found:', assetSystem);
-    } catch (error) {
-      console.error('Error checking asset system:', error);
-      return res.status(500).json({
+    });
+
+    if (!assetSystem) {
+      await transaction.rollback();
+      return res.status(404).json({
         status: false,
-        message: "Error checking asset system",
-        details: error.message
+        message: "Asset system not found",
+        details: {
+          searchedValue: req.body.assetSystem,
+          availableAssets: await AssetHierarchy.findAll({
+            attributes: ['id', 'name'],
+            limit: 5
+          })
+        }
       });
     }
 
-    // Helper function to convert likelihood and consequence strings to integers
-    const convertToInteger = (value) => {
-      console.log("Converting value:", value);
+    // Create Task Hazard
+    const taskHazard = await TaskHazard.create({
+      id: taskId,
+      company: userCompany,
+      date: req.body.date,
+      time: req.body.time,
+      scopeOfWork: req.body.scopeOfWork,
+      assetSystem: req.body.assetSystem,
+      systemLockoutRequired: req.body.systemLockoutRequired || false,
+      trainedWorkforce: req.body.trainedWorkforce,
+      individual: req.body.individual,
+      supervisor: req.body.supervisor,
+      location: req.body.location,
+      status: req.body.status || 'Pending',
+      geoFenceLimit: req.body.geoFenceLimit || 200
+    }, { transaction });
 
-      if (value === undefined || value === null || value === "") {
-        console.log("Empty value, returning default 1");
-        return 1; // Default value for empty inputs
-      }
-      
-      // Maps for create function
-      const likelihoodMap = {
-        'Very Unlikely': 1,
-        'Slight Chance': 2,
-        'Feasible': 3,
-        'Likely': 4,
-        'Very Likely': 5
-      };
-      
-      const consequenceMap = {
-        'Minor': 1,
-        'Significant': 2,
-        'Serious': 3,
-        'Major': 4,
-        'Catastrophic': 5
-      };
-      
-      // If the value is already a number, return it
-      if (!isNaN(Number(value))) {
-        console.log("Value is already a number:", Number(value));
-        return Number(value);
-      }
-      
-      // Check if value is in our maps
-      if (likelihoodMap[value] !== undefined) {
-        console.log("Found in likelihood map:", likelihoodMap[value]);
-        return likelihoodMap[value];
-      }
-      
-      if (consequenceMap[value] !== undefined) {
-        console.log("Found in consequence map:", consequenceMap[value]);
-        return consequenceMap[value];
-      }
+    // Create associated risks
+    const risks = await Promise.all(
+      req.body.risks.map(risk => 
+        TaskRisk.create({
+          taskHazardId: taskHazard.id,
+          riskDescription: risk.riskDescription,
+          riskType: risk.riskType,
+          asIsLikelihood: convertToInteger(risk.asIsLikelihood),
+          asIsConsequence: convertToInteger(risk.asIsConsequence),
+          mitigatingAction: risk.mitigatingAction,
+          mitigatingActionType: risk.mitigatingActionType,
+          mitigatedLikelihood: convertToInteger(risk.mitigatedLikelihood),
+          mitigatedConsequence: convertToInteger(risk.mitigatedConsequence),
+          requiresSupervisorSignature: risk.requiresSupervisorSignature || false
+        }, { transaction })
+      )
+    );
 
-      // If we get here, we couldn't convert properly
-      console.log("Could not convert value, using default 1");
-      return 1; // Default fallback
-    };
-
-    // Start transaction
-    const result = await db.sequelize.transaction(async (t) => {
-      // Create Task Hazard
-      console.log("This is the assetSystem", req.body);
-      
-      const taskHazard = await TaskHazard.create({
-        id: taskId,
-        company: userCompany,
-        date: req.body.date,
-        time: req.body.time,
-        scopeOfWork: req.body.scopeOfWork,
-        systemLockoutRequired: req.body.systemLockoutRequired || false,
-        trainedWorkforce: req.body.trainedWorkforce,
-        individual: req.body.individual,
-        supervisor: req.body.supervisor,
-        location: req.body.location,
-        status: req.body.status || 'Active',
-        geoFenceLimit: req.body.geoFenceLimit || 200
-      }, { transaction: t });
-      console.log(taskHazard);
-      
-      // Create associated risks
-      const risks = await Promise.all(
-        req.body.risks.map(risk => 
-          TaskRisk.create({
-            taskHazardId: taskHazard.id,
-            riskDescription: risk.riskDescription,
-            riskType: risk.riskType,
-            asIsLikelihood: convertToInteger(risk.asIsLikelihood),
-            asIsConsequence: convertToInteger(risk.asIsConsequence),
-            mitigatingAction: risk.mitigatingAction,
-            mitigatingActionType: risk.mitigatingActionType,
-            mitigatedLikelihood: convertToInteger(risk.mitigatedLikelihood),
-            mitigatedConsequence: convertToInteger(risk.mitigatedConsequence),
-            requiresSupervisorSignature: risk.requiresSupervisorSignature || false
-          }, { transaction: t })
-        )
-      );
-      console.log("risks", risks);
-
-      return { taskHazard, risks };
-    });
-
-    console.log(result);
+    // Commit transaction
+    await transaction.commit();
 
     res.status(201).json({
       status: true,
       message: "Task Hazard created successfully",
-      data: result
+      data: { taskHazard, risks }
     });
 
   } catch (error) {
+    // Rollback transaction on error
+    if (transaction) await transaction.rollback();
+    
+    console.error('Error creating task hazard:', error);
     res.status(500).json({
       status: false,
       message: error.message || "Some error occurred while creating the Task Hazard."
@@ -332,58 +344,10 @@ exports.update = async (req, res) => {
       }
     }
 
-    // Helper function to convert likelihood and consequence strings to integers
-    const convertToInteger = (value) => {
-      console.log("Converting value:", value);
-
-      if (value === undefined || value === null || value === "") {
-        console.log("Empty value, returning default 1");
-        return 1; // Default value for empty inputs
-      }
-      
-      // Maps for update function
-      const likelihoodMap = {
-        'Very Unlikely': 1,
-        'Slight Chance': 2,
-        'Feasible': 3,
-        'Likely': 4,
-        'Very Likely': 5
-      };
-      
-      const consequenceMap = {
-        'Minor': 1,
-        'Significant': 2,
-        'Serious': 3,
-        'Major': 4,
-        'Catastrophic': 5
-      };
-      
-      // If the value is already a number, return it
-      if (!isNaN(Number(value))) {
-        console.log("Value is already a number:", Number(value));
-        return Number(value);
-      }
-      
-      // Check if value is in our maps
-      if (likelihoodMap[value] !== undefined) {
-        console.log("Found in likelihood map:", likelihoodMap[value]);
-        return likelihoodMap[value];
-      }
-      
-      if (consequenceMap[value] !== undefined) {
-        console.log("Found in consequence map:", consequenceMap[value]);
-        return consequenceMap[value];
-      }
-
-      // If we get here, we couldn't convert properly
-      console.log("Could not convert value, using default 1");
-      return 1; // Default fallback
-    };
-
-    // Start transaction
+    // Start transaction'
+    console.log("req.body.risks", req.body);
     const result = await db.sequelize.transaction(async (t) => {
       // Update Task Hazard
-      console.log("req.body", req.body);
       await taskHazard.update({
         date: req.body.date,
         time: req.body.time,
@@ -407,7 +371,6 @@ exports.update = async (req, res) => {
         });
 
         // Create new risks
-        console.log("req.body.risks", req.body.risks);
         const risks = await Promise.all(
           req.body.risks.map(risk => 
             TaskRisk.create({
@@ -424,8 +387,6 @@ exports.update = async (req, res) => {
             }, { transaction: t })
           )
         );
-
-        console.log("risks", risks);
 
         return { taskHazard, risks };
       }
