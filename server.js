@@ -30,11 +30,17 @@ app.set('port', port);
  */
 const server = http.createServer(app);
 
-/**
- * Listen on provided port, on all network interfaces.
- */
-server.listen(port, () => {
-    console.log(`HTTP Server running on port ${port}`);
+const db = require("./App/models");
+
+// Sync database without dropping tables
+db.sequelize.sync().then(function (){
+  console.log("Database synced.");
+  /**
+   * Listen on provided port, on all network interfaces.
+   */
+  server.listen(port, () => {
+      console.log(`HTTP Server running on port ${port}`);
+  });
 });
 
 /**

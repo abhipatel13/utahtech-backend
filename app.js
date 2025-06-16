@@ -80,12 +80,12 @@ app.use((req, res, next) => {
   next();
 });
 
-const db = require("./App/models");
+// const db = require("./App/models");
 
-// Sync database without dropping tables
-db.sequelize.sync().then(() => {
-  console.log("Database synced.");
-});
+// // Sync database without dropping tables
+// db.sequelize.sync().then(() => {
+//   console.log("Database synced.");
+// });
 
 // view engine setup
 app.set('views', path.join(__dirname, 'views'));
