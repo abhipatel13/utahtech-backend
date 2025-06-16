@@ -20,12 +20,12 @@ module.exports = (sequelize, Sequelize) => {
     },
     paymentDate: {
       type: Sequelize.DATE,
-      allowNull: false,
-      defaultValue: Sequelize.NOW
+      defaultValue: Sequelize.NOW,
+      allowNull: true
     },
     validUntil: {
       type: Sequelize.DATE,
-      allowNull: false
+      allowNull: true
     },
     status: {
       type: Sequelize.ENUM('pending', 'completed', 'failed'),

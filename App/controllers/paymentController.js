@@ -2,13 +2,42 @@ const models = require('../models');
 const Payment = models.payments;
 const User = models.users;
 const { v4: uuidv4 } = require('uuid');
+const notificationController = require('./notificationController');
+const stripeService = require('../services/stripeService');
+
+// Create payment intent (for Stripe)
+exports.createPaymentIntent = async (req, res) => {
+  try {
+    const { amount } = req.body;
+
+    if (!amount) {
+      return res.status(400).json({
+        status: false,
+        message: 'Amount is required'
+      });
+    }
+
+    const paymentIntent = await stripeService.createPaymentIntent(amount);
+
+    return res.status(200).json({
+      status: true,
+      clientSecret: paymentIntent.client_secret
+    });
+  } catch (error) {
+    return res.status(500).json({
+      status: false,
+      message: 'Error creating payment intent',
+      error: error.message
+    });
+  }
+};
 
 // Process payment for a user (SuperAdmin only)
 exports.processPayment = async (req, res) => {
   const t = await models.sequelize.transaction();
   
   try {
-    const { userId, amount, paymentMethod, validityMonths = 1 } = req.body;
+    const { userId, amount, paymentMethod, validityMonths = 1, stripePaymentIntentId } = req.body;
 
     // Validate input
     if (!userId || !amount || !paymentMethod) {
@@ -27,6 +56,17 @@ exports.processPayment = async (req, res) => {
       });
     }
 
+    // If payment method is stripe, verify the payment intent
+    if (paymentMethod === 'stripe' && stripePaymentIntentId) {
+      const paymentIntent = await stripeService.retrievePaymentIntent(stripePaymentIntentId);
+      if (paymentIntent.status !== 'succeeded') {
+        return res.status(400).json({
+          status: false,
+          message: 'Payment has not been completed'
+        });
+      }
+    }
+
     // Calculate validity period
     const validUntil = new Date();
     validUntil.setMonth(validUntil.getMonth() + validityMonths);
@@ -38,9 +78,17 @@ exports.processPayment = async (req, res) => {
       paymentMethod,
       validUntil,
       status: 'completed',
-      transactionId: uuidv4(),
+      transactionId: stripePaymentIntentId || uuidv4(),
       processedBy: req.user.id
     }, { transaction: t });
+
+    // Create notification for successful payment
+    await notificationController.createNotification(
+      userId,
+      'Payment Successful',
+      `Your payment of $${amount} has been processed successfully. Valid until ${validUntil.toLocaleDateString()}.`,
+      'payment'
+    );
 
     await t.commit();
 
@@ -60,7 +108,6 @@ exports.processPayment = async (req, res) => {
   }
 };
 
-// Get all payments (SuperAdmin only)
 exports.getAllPayments = async (req, res) => {
   try {
     const payments = await Payment.findAll({
@@ -117,6 +164,9 @@ exports.getUserPayments = async (req, res) => {
       order: [['createdAt', 'DESC']]
     });
 
+    // Check payment status and create notifications if needed
+    await notificationController.checkPaymentStatusAndNotify();
+
     return res.status(200).json({
       status: true,
       data: payments
@@ -160,6 +210,78 @@ exports.checkPaymentStatus = async (req, res) => {
         latestPayment,
         validUntil: latestPayment ? latestPayment.validUntil : null
       }
+    });
+  } catch (error) {
+    return res.status(500).json({
+      status: false,
+      message: 'Error checking payment status',
+      error: error.message
+    });
+  }
+};
+
+// Get all users' subscription status (SuperAdmin only)
+exports.getAllUsersSubscriptionStatus = async (req, res) => {
+  try {
+    // Only SuperAdmin can access this endpoint
+    if (req.user.role !== 'superuser') {
+      return res.status(403).json({
+        status: false,
+        message: 'Access denied. SuperAdmin only.'
+      });
+    }
+
+    const users = await User.findAll({
+      attributes: ['id', 'name', 'email', 'user_type'],
+      include: [{
+        model: Payment,
+        as: 'payments',
+        attributes: ['validUntil', 'amount', 'status'],
+        where: { status: 'completed' },
+        order: [['validUntil', 'DESC']],
+        limit: 1,
+        required: false
+      }]
+    });
+
+    const usersStatus = users.map(user => {
+      const latestPayment = user.payments?.[0];
+      const hasActiveSubscription = latestPayment && new Date(latestPayment.validUntil) > new Date();
+
+      return {
+        id: user.id,
+        name: user.name,
+        email: user.email,
+        userType: user.user_type,
+        subscriptionStatus: {
+          hasActiveSubscription,
+          validUntil: latestPayment?.validUntil || null,
+          lastPaymentAmount: latestPayment?.amount || null
+        }
+      };
+    });
+
+    return res.status(200).json({
+      status: true,
+      data: usersStatus
+    });
+  } catch (error) {
+    return res.status(500).json({
+      status: false,
+      message: 'Error fetching users subscription status',
+      error: error.message
+    });
+  }
+};
+
+// Add a new function to check all users' payment status
+exports.checkAllUsersPaymentStatus = async (req, res) => {
+  try {
+    await notificationController.checkPaymentStatusAndNotify();
+    
+    return res.status(200).json({
+      status: true,
+      message: 'Payment status checked and notifications sent'
     });
   } catch (error) {
     return res.status(500).json({
