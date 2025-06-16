@@ -35,6 +35,12 @@ const users = [
     password: 'user123',
     role: 'user',
     company: 'Utah Tech Services'
+  },
+  {
+    email: 'newsuperuser@utahtechnicalservicesllc.com',
+    password: 'newsuperuser123',
+    role: 'superuser',
+    company: 'New Tech Company'
   }
 ];
 
@@ -64,25 +70,32 @@ const seedUsers = async () => {
       console.log('Users table already exists');
     }
 
-    // Clear existing users
-    await connection.execute('DELETE FROM users');
-
-    // Create new users
+    // Instead of deleting all users, we'll check if each user exists before inserting
     for (const userData of users) {
-      // Hash password
-      const salt = await bcrypt.genSalt(10);
-      const hashedPassword = await bcrypt.hash(userData.password, salt);
-      
-      // Insert user
-      await connection.execute(
-        'INSERT INTO users (email, password, role, company) VALUES (?, ?, ?, ?)',
-        [userData.email, hashedPassword, userData.role, userData.company]
+      // Check if user already exists
+      const [existingUsers] = await connection.execute(
+        'SELECT id FROM users WHERE email = ?',
+        [userData.email]
       );
-      
-      console.log(`Created user: ${userData.email} with role: ${userData.role} and company: ${userData.company}`);
+
+      if (existingUsers.length === 0) {
+        // Hash password
+        const salt = await bcrypt.genSalt(10);
+        const hashedPassword = await bcrypt.hash(userData.password, salt);
+        
+        // Insert user
+        await connection.execute(
+          'INSERT INTO users (email, password, role, company) VALUES (?, ?, ?, ?)',
+          [userData.email, hashedPassword, userData.role, userData.company]
+        );
+        
+        console.log(`Created user: ${userData.email} with role: ${userData.role} and company: ${userData.company}`);
+      } else {
+        console.log(`User ${userData.email} already exists, skipping...`);
+      }
     }
 
-    console.log('All users created successfully');
+    console.log('User seeding completed');
   } catch (error) {
     console.error('Error seeding users:', error);
   } finally {
