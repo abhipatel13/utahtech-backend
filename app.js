@@ -62,16 +62,6 @@ app.use(cors(corsOptions));
 
 app.options('*', cors(corsOptions));
 
-// Request logging middleware
-app.use((req, res, next) => {
-  console.log('Request:', {
-    method: req.method,
-    origin: req.headers.origin,
-    path: req.path
-  });
-  next();
-});
-
 const db = require("./App/models");
 
 // Sync database without dropping tables
