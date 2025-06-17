@@ -9,13 +9,6 @@ const routes = require('./App/routes');
 const helmet = require('helmet');
 const compression = require('compression');
 
-// Import the router directly
-const taskHazardRoutes = require('./App/routes/task_hazard.routes');
-const assetHierarchyRoutes = require('./App/routes/asset_hierarchy.routes');
-const userRoutes = require('./App/routes/userRoutes');
-const tacticRoutes = require('./App/routes/tacticRoutes');
-const paymentRoutes = require('./App/routes/payment.routes');
-
 const cors = require('cors');
 
 /* Express Settings and work */
@@ -65,10 +58,8 @@ const corsOptions = {
   optionsSuccessStatus: 204
 };
 
-// Apply CORS before other middleware
 app.use(cors(corsOptions));
 
-// Handle preflight requests explicitly
 app.options('*', cors(corsOptions));
 
 // Request logging middleware
@@ -132,11 +123,6 @@ app.get('/', function(req, res) {
 });
 
 app.use('/api', routes);
-app.use('/api/task-hazards', taskHazardRoutes);
-app.use('/api/asset-hierarchy', assetHierarchyRoutes);
-app.use('/api/users', userRoutes);
-app.use('/api/tactics', tacticRoutes);
-app.use('/api/payments', paymentRoutes);
 
 // catch 404 and forward to error handler
 app.use(function (req, res, next) {

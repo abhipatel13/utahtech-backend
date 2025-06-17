@@ -15,11 +15,9 @@ const checkUsers = async () => {
   try {
     // Create connection to MySQL
     connection = await mysql.createConnection(dbConfig);
-    console.log('Connected to MySQL database:', dbConfig.database);
 
     // Check if users table exists
     const [tables] = await connection.execute('SHOW TABLES');
-    console.log('Tables in database:', tables.map(t => Object.values(t)[0]));
 
     // Check users table structure
     try {
