@@ -1,6 +1,3 @@
-
-
-
 module.exports = (sequelize, Sequelize) => {
 	const users = sequelize.define("users", {
 		id: {
@@ -80,10 +77,12 @@ module.exports = (sequelize, Sequelize) => {
 		allowNull: true
 	}
 	});
+
     users.associate = function(models) {
 		users.belongsTo(models.users, {foreignKey: 'supervisor_id', as: 'supervisor'})
 		users.hasOne(models.users, {foreignKey: 'supervisor_id', as: 'user'})	
 		users.hasOne(models.reset_passwords, {foreignKey: '_userId', as: 'log_user'})
+		users.hasMany(models.payments, {foreignKey: 'userId', as: 'payments'})
 	  };
 	  return users;
   };

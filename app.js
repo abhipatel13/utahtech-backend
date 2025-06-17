@@ -14,6 +14,7 @@ const taskHazardRoutes = require('./App/routes/task_hazard.routes');
 const assetHierarchyRoutes = require('./App/routes/asset_hierarchy.routes');
 const userRoutes = require('./App/routes/userRoutes');
 const tacticRoutes = require('./App/routes/tacticRoutes');
+const paymentRoutes = require('./App/routes/payment.routes');
 
 const cors = require('cors');
 
@@ -135,6 +136,7 @@ app.use('/api/task-hazards', taskHazardRoutes);
 app.use('/api/asset-hierarchy', assetHierarchyRoutes);
 app.use('/api/users', userRoutes);
 app.use('/api/tactics', tacticRoutes);
+app.use('/api/payments', paymentRoutes);
 
 // catch 404 and forward to error handler
 app.use(function (req, res, next) {

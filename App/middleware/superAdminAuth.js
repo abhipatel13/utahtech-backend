@@ -9,7 +9,7 @@ const isSuperAdmin = (req, res, next) => {
     }
 
     // Check if user is a superadmin
-    if (req.user.user_type !== 'admin') {
+    if (req.user.role !== 'superuser') {
       return res.status(403).json({
         status: false,
         message: 'Access denied. SuperAdmin privileges required.'
