@@ -94,38 +94,8 @@ const checkPermission = (permissions) => {
   };
 };
 
-const authenticateToken = (req, res, next) => {
-  try {
-    const token = req.header('Authorization')?.replace('Bearer ', '');
-
-    if (!token) {
-      return res.status(401).json({ error: 'No token provided' });
-    }
-
-    const decoded = jwt.verify(token, process.env.JWT_SECRET);
-    console.log("Decoded token:", decoded);
-
-    User.findById(decoded.userId)
-      .then(user => {
-        if (!user) {
-          return res.status(401).json({ error: 'User not found' });
-        }
-        req.user = user;
-        next();
-      })
-      .catch(error => {
-        console.error('Error finding user:', error);
-        res.status(500).json({ error: 'Internal server error' });
-      });
-  } catch (error) {
-    console.error('Token verification error:', error);
-    res.status(401).json({ error: 'Invalid token' });
-  }
-};
-
 module.exports = {
   auth,
   checkRole,
-  authenticateToken,
   checkPermission,
 };
