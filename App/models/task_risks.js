@@ -5,13 +5,9 @@ module.exports = (sequelize, Sequelize) => {
       primaryKey: true,
       autoIncrement: true
     },
-    taskHazardId: {
+    taskHazard_id: {
       type: Sequelize.STRING,
-      allowNull: false,
-      references: {
-        model: 'task_hazards',
-        key: 'id'
-      }
+      allowNull: false
     },
     riskDescription: {
       type: Sequelize.TEXT,
@@ -92,25 +88,19 @@ module.exports = (sequelize, Sequelize) => {
     requiresSupervisorSignature: {
       type: Sequelize.BOOLEAN,
       defaultValue: false
-    },
-    createdAt: {
-      field: 'created_at',
-      type: Sequelize.DATE,
-      allowNull: false
-    },
-    updatedAt: {
-      field: 'updated_at',
-      type: Sequelize.DATE,
-      allowNull: false
     }
+  }, {
+    tableName: 'task_risks',
+    timestamps: true,
+    underscored: true
   });
 
   // Define the association
   TaskRisk.associate = function(models) {
     // A TaskRisk belongs to a TaskHazard
-    TaskRisk.belongsTo(models.task_hazards, {
-      foreignKey: 'taskHazardId',
-      as: 'taskHazard'
+    TaskRisk.belongsTo(models.task_hazards, { 
+      foreignKey: 'taskHazard_id',
+      as: 'hazards'
     });
   };
 

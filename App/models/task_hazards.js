@@ -5,12 +5,12 @@ module.exports = (sequelize, Sequelize) => {
       primaryKey: true,
       allowNull: false
     },
-    company: {
-      type: Sequelize.STRING(150),
+    company_id: {
+      type: Sequelize.INTEGER,
       allowNull: false,
       references: {
-        model: 'users',
-        key: 'company'
+        model: 'company',
+        key: 'id'
       }
     },
     date: {
@@ -21,11 +21,11 @@ module.exports = (sequelize, Sequelize) => {
       type: Sequelize.TIME,
       allowNull: false
     },
-    scopeOfWork: {
+    scope_of_work: {
       type: Sequelize.TEXT,
       allowNull: false
     },
-    assetSystem: {
+    asset_hierarchy_id: {
       type: Sequelize.STRING,
       allowNull: true,
       references: {
@@ -33,11 +33,11 @@ module.exports = (sequelize, Sequelize) => {
         key: 'id'
       }
     },
-    systemLockoutRequired: {
+    system_lockout_required: {
       type: Sequelize.BOOLEAN,
       defaultValue: false
     },
-    trainedWorkforce: {
+    trained_workforce: {
       type: Sequelize.STRING,
       allowNull: false
     },
@@ -45,7 +45,6 @@ module.exports = (sequelize, Sequelize) => {
       type: Sequelize.STRING,
       allowNull: false
     },
-    
     supervisor: {
       type: Sequelize.STRING,
       allowNull: false
@@ -58,35 +57,33 @@ module.exports = (sequelize, Sequelize) => {
       type: Sequelize.ENUM('Active', 'Inactive', 'Completed', 'Pending', 'Rejected'),
       defaultValue: 'Pending'
     },
-    geoFenceLimit: {
+    geofence_limit: {
       type: Sequelize.INTEGER,
       allowNull: false,
       defaultValue: 200
-    },
-    createdAt: {
-      field: 'created_at',
-      type: Sequelize.DATE,
-      allowNull: false
-    },
-    updatedAt: {
-      field: 'updated_at',
-      type: Sequelize.DATE,
-      allowNull: false
     }
+  }, {
+    tableName: 'task_hazards',
+    timestamps: true,
+    underscored: true
+
   });
 
   // Define the association
   TaskHazard.associate = function(models) {
-    // A TaskHazard has many TaskRisks
-    TaskHazard.hasMany(models.task_risks, {
-      foreignKey: 'taskHazardId',
-      as: 'risks'
-    });
-    
-    // A TaskHazard belongs to an AssetHierarchy
     TaskHazard.belongsTo(models.asset_hierarchy, {
-      foreignKey: 'assetSystem',
+      foreignKey: 'asset_hierarchy_id',
       as: 'asset'
+    });
+
+    TaskHazard.belongsTo(models.company, {  
+      foreignKey: "company_id",
+      as: 'company'
+    });
+
+    TaskHazard.hasMany(models.task_risks,{ 
+      foreignKey: 'taskHazard_id', 
+      as: 'risks' 
     });
   };
 

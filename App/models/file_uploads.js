@@ -21,7 +21,11 @@ module.exports = (sequelize, Sequelize) => {
       type: Sequelize.INTEGER,
       allowNull: false
     },
-    uploadedBy: {
+    status: {
+      type: Sequelize.ENUM('uploading', 'completed', 'error'),
+      defaultValue: 'uploading'
+    },
+    uploader_id: {
       type: Sequelize.INTEGER,
       allowNull: false,
       references: {
@@ -29,34 +33,24 @@ module.exports = (sequelize, Sequelize) => {
         key: 'id'
       }
     },
-    status: {
-      type: Sequelize.ENUM('uploading', 'completed', 'error'),
-      defaultValue: 'uploading'
-    },
-    company: {
-      type: Sequelize.STRING(150),
-      allowNull: false,
-      references: {
-        model: 'users',
-        key: 'company'
-      }
-    },
-    createdAt: {
-      field: 'created_at',
-      type: Sequelize.DATE,
-      allowNull: false
-    },
-    updatedAt: {
-      field: 'updated_at',
-      type: Sequelize.DATE,
-      allowNull: false
-    }
+    // company_id: {
+    //   type: Sequelize.INTEGER,
+    //   allowNull: false,
+    //   references: {
+    //     model: 'company',
+    //     key: 'id'
+    //   }
+    // },
+  }, {
+    tableName: 'file_uploads',
+    timestamps: true,
+    underscored: true
   });
 
   FileUpload.associate = function(models) {
     FileUpload.belongsTo(models.users, { 
-      foreignKey: 'uploadedBy',
-      as: 'uploader'
+      foreignKey: "uploader_id",
+      as: 'uploadedBy'
     });
   };
 

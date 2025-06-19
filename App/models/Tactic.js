@@ -5,15 +5,15 @@ module.exports = (sequelize, Sequelize) => {
       primaryKey: true,
       allowNull: false
     },
-    company: {
-      type: Sequelize.STRING(150),
+    company_id: {
+      type: Sequelize.INTEGER,
       allowNull: false,
       references: {
-        model: 'users',
-        key: 'company'
+        model: 'company',
+        key: 'id'
       }
     },
-    analysis_name: {
+    analysisName: {
       type: Sequelize.STRING,
       allowNull: false
     },
@@ -25,14 +25,22 @@ module.exports = (sequelize, Sequelize) => {
       type: Sequelize.ENUM('Active', 'Inactive', 'Pending'),
       defaultValue: 'Active'
     },
-    asset_details: {
+    assetDetails: {
       type: Sequelize.JSON,
       allowNull: false
     }
   }, {
-    underscored: true,
-    timestamps: true
+    tableName: 'tactics',
+    timestamps: true,
+    underscored: true
   });
+
+  Tactic.associate = function(models) {
+    Tactic.belongsTo(models.company, { 
+      foreignKey: 'company_id',
+      as: 'company'
+    });
+  };
 
   return Tactic;
 }; 
