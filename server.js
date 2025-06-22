@@ -33,10 +33,19 @@ const server = http.createServer(app);
 const db = require("./App/models");
 
 // Sync database without dropping tables
-// TODO: REMOVE 'force:true' IN PRODUCTION
-// db.sequelize.sync({ force:true }).then(function (){
 db.sequelize.sync().then(function (){
   console.log("Database synced.");
+
+  // Seeds the database with users
+  // const createUsers = require('./scripts/createUsers');
+  // createUsers(db.sequelize)
+  //   .then(() => {
+  //     console.log('Users created successfully.');
+  //   })
+  //   .catch(err => {
+  //     console.error('Error creating users:', err);
+  //   });
+
   /**
    * Listen on provided port, on all network interfaces.
    */

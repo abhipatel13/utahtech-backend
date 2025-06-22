@@ -1,65 +1,100 @@
-const mysql = require('mysql2/promise');
-const bcrypt = require('bcryptjs');
-require('dotenv').config();
+const bcrypt = require("bcryptjs");
+const e = require("express");
+require("dotenv").config();
 
-const dbConfig = {
-  host: process.env.DB_HOST || 'localhost',
-  user: process.env.DB_USER || 'root',
-  password: process.env.DB_PASSWORD || '',
-  database: process.env.DB_NAME || 'utahtech_db'
+const createUsers = async (sequelize) => {
+  // Provide a company name and the number fo users to create for each role
+  const companyName = "Madeup Mining Co";
+  const roles = [
+    ["superuser", 1],
+    ["admin", 1],
+    ["supervisor", 2],
+    ["user", 5],
+  ];
+
+  try {
+    const CompanyModel = sequelize.models.company;
+    if (!CompanyModel) {
+      throw new Error("Company model not found");
+    }
+
+    // Check if the company exists
+    let company = await CompanyModel.findOne({ where: { name: companyName } });
+    if (!company) {
+      // If the company does not exist, create it
+      company = await CompanyModel.create({ name: companyName });
+      console.log("Created company:", company);
+    } else {
+    //   console.log("Company already exists:", company);
+    }
+
+    const UserModel = sequelize.models.users;
+    if (!UserModel) {
+      throw new Error("User model not found");
+    }
+    // Get existing users for the company
+    const existingUsers = await UserModel.findAll({
+      where: { company_id: company.id },
+    });
+
+    const existingUsersByRole = {};
+    for (const user of existingUsers) {
+      if (!existingUsersByRole[user.role]) {
+        existingUsersByRole[user.role] = [];
+      }
+      existingUsersByRole[user.role].push(user);
+    }
+    // console.log('Existing users by role:', existingUsersByRole);
+
+    // Create users for each role
+    for (let i = 0; i < roles.length; i++) {
+      const [role, requiredCount] = roles[i];
+      const existingCount = existingUsersByRole[role]
+        ? existingUsersByRole[role].length
+        : 0;
+      for (let j = existingCount; j < requiredCount; j++) {
+        const email = `${role}${j + 1}@${companyName
+          .replace(/\s+/g, "")
+          .toLowerCase()}.com`;
+        const password = `${role}${j + 1}123`;
+        const hashedPassword = bcrypt.hashSync(password, 10);
+        var supervisorId = null;
+
+        // Select a random supervisor if the role is 'user'
+        if (
+          role === "user" &&
+          existingUsersByRole["supervisor"] &&
+          existingUsersByRole["supervisor"].length > 0
+        ) {
+          const supervisors = existingUsersByRole["supervisor"];
+          supervisorId =
+            supervisors[Math.floor(Math.random() * supervisors.length)].id;
+        }
+        console.log(
+          `Creating user: ${email} with role: ${role}, supervisorId: ${supervisorId}`
+        );
+
+        await UserModel.create({
+          email: email,
+          password: hashedPassword,
+          role: role,
+          company_id: company.id,
+          supervisorId: supervisorId,
+        }).then((user) => {
+          if (!existingUsersByRole[user.role]) {
+            existingUsersByRole[user.role] = [];
+          }
+          existingUsersByRole[user.role].push(user);
+        });
+        console.log(`User ${email} created successfully with role ${role}.`);
+      }
+    }
+    console.log("All users created successfully.");
+
+  } catch (error) {
+    console.error("Error creating users:", error);
+  }
+  process.exit(0);
 };
 
-const createUsers = async () => {
-    let connection;
-    
-    try {
-        // Create connection to MySQL
-        connection = await mysql.createConnection(dbConfig);
-        console.log('Connected to MySQL database:', dbConfig.database);
-
-        // Set a company name, a role, and the number of users to create
-        const company = 'Madeup Mining Co';
-        // Roles: 'superuser', 'admin', 'supervisor', 'user'
-        const role = 'user';
-        // Number of users to create
-        const count = 5;
-
-        // Checks for existing users for a given company and sorts them by role   
-        var foundUsers = await connection.execute(
-            'SELECT id, email, role, supervisor_id FROM users WHERE company = ?', 
-            [company]);
-
-        var existingUsers = {};
-        for (const user of foundUsers[0]) {
-            (existingUsers[user.role] ? existingUsers[user.role].push(user) : existingUsers[user.role] = [user]);
-        }
-        // console.log('User groups', existingUsers);
-
-        // Create users
-        for(var i = 0; i < count; i++) {
-            const email = `${role}${i + 1}@${company.replace(/\s+/g, '').toLowerCase()}.com`;
-            const password = `${role}${i + 1}123`;
-            const hashedPassword = bcrypt.hashSync(password, 10);
-            const supervisor = role === 'user' && existingUsers['supervisor'] && existingUsers['supervisor'].length > 0 ? 
-                existingUsers['supervisor'][Math.floor(Math.random() * existingUsers['supervisor'].length)].id : null;
-
-            await connection.execute(
-                'INSERT INTO users (email, password, role, company, supervisor_id) VALUES (?, ?, ?, ?, ?)',
-                [email, hashedPassword, role, company, supervisor]
-            );
-            console.log(`User ${email} created successfully.`);
-
-        }
-        console.log('All users created successfully');
-
-    } catch (error) {
-        console.error('Error creating users:', error);
-    } finally {
-        if (connection) {
-        await connection.end();
-        }
-    }
-    process.exit(0);
-}
-
-createUsers();
+module.exports = createUsers;
