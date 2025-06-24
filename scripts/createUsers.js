@@ -11,29 +11,28 @@ const createUsers = async (sequelize) => {
     ["supervisor", 2],
     ["user", 5],
   ];
+  const dbInstance = require("../App/models");
 
   try {
-    const CompanyModel = sequelize.models.company;
+    const CompanyModel = dbInstance.sequelize.models.company;
     if (!CompanyModel) {
       throw new Error("Company model not found");
     }
 
-    // Check if the company exists
-    let company = await CompanyModel.findOne({ where: { name: companyName } });
-    if (!company) {
-      // If the company does not exist, create it
-      company = await CompanyModel.create({ name: companyName });
-      console.log("Created company:", company);
-    } else {
-    //   console.log("Company already exists:", company);
+    const [company, created] = await CompanyModel.findOrCreate({
+      where: { name: companyName }
+    });
+
+    if (created) { 
+      console.log("Created company:", company); 
     }
 
-    const UserModel = sequelize.models.users;
+    const UserModel = dbInstance.sequelize.models.user;
     if (!UserModel) {
       throw new Error("User model not found");
     }
     // Get existing users for the company
-    const existingUsers = await UserModel.findAll({
+    const existingUsers = await UserModel.scope('auth').findAll({
       where: { company_id: company.id },
     });
 
@@ -44,7 +43,10 @@ const createUsers = async (sequelize) => {
       }
       existingUsersByRole[user.role].push(user);
     }
-    // console.log('Existing users by role:', existingUsersByRole);
+
+    // existingUsers.map((user) => {
+    //   console.log(user);
+    // });
 
     // Create users for each role
     for (let i = 0; i < roles.length; i++) {
@@ -79,7 +81,7 @@ const createUsers = async (sequelize) => {
           password: hashedPassword,
           role: role,
           company_id: company.id,
-          supervisorId: supervisorId,
+          supervisor_id: supervisorId,
         }).then((user) => {
           if (!existingUsersByRole[user.role]) {
             existingUsersByRole[user.role] = [];
