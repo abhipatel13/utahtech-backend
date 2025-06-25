@@ -48,11 +48,14 @@ router.post('/login', async (req, res) => {
     const { email, password, company } = req.body;
     
     // Find user by email
-    const user = await User.findByEmail(email);
-    console.log("user", user)
-    
-    if (!user || user.company !== company) {
-      return res.status(401).json({ 
+    const db = require('../models');
+    const user = await db.sequelize.models.user.scope('auth').findOne({
+      where: { email:email }
+    });
+    console.log("user", user);
+
+    if (!user) {
+      return res.status(401).json({
         status: false,
         message: 'Invalid email, password, or company' 
       });

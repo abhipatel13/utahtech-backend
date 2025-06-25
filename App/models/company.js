@@ -12,6 +12,10 @@ module.exports = (sequelize, Sequelize) => {
   });
 
   Company.associate = function(models) {
+    Company.hasMany(models.users, {
+      foreignKey: 'company_id',
+      as: 'users'
+    });
     Company.hasMany(models.task_hazards);
 
     Company.hasMany(models.asset_hierarchy, { 

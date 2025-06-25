@@ -60,26 +60,27 @@ class Users extends Sequelize.Model {
         plant: {
           type: DataTypes.STRING(150)
         },
-        is_deleted: {
-          type: DataTypes.ENUM,
-          values: ['0', '1'], // 1 -> Deleted 0-> Exist
-          default: '0',
-        },
         profile_pic: {
           type: DataTypes.STRING,
           default: 'images/noimage.png',
+        },
+        last_login: {
+          type: DataTypes.DATE,
+          defaultValue: new Date()
         }
       },
       {
         // Password is excluded by default, but can be included by using the 'auth' scope
         defaultScope: {
           attributes: {
-            exclude: ['password']
+            exclude: ['password'],
+            include: [{ model: sequelize.models.company, as: 'company'}]
           }
         },
         scopes: {
           auth: {
-            exclude: []
+            exclude: [],
+            include: [{ model: sequelize.models.company, as: 'company'}]
           }
         },
         sequelize,
@@ -106,11 +107,19 @@ class Users extends Sequelize.Model {
       foreignKey: 'supervisor_id',
       as: 'supervisor'
     });
-    this.paymentsAssociation = models.users.hasMany(models.payments, {foreignKey: 'userId', as: 'payments'})
+    this.paymentsAssociation = models.users.hasMany(models.payments, {foreignKey: 'userId', as: 'payments'});
+    this.companyAssociation = models.users.belongsTo(models.company, {
+      foreignKey: 'company_id',
+      as: 'company'
+    });
   };
+
 
   // The below methods are replacements for User class methods
   async comparePassword(candidatePassword) {
+    if (this.password === undefined) {
+      throw new Error('Password not in scope');
+    }
     return bcrypt.compare(candidatePassword, this.password);
   }
 
@@ -147,10 +156,11 @@ class Users extends Sequelize.Model {
     return rolePermissions[this.role] || [];
   }
 
-  // async updateLastLogin() {
-  //   // No last_login field in the database, so we'll just return the user
-  //   return this;
-  // }
+  async updateLastLogin() {
+    this.last_login = new Date();
+    await this.save();
+    return this;
+  }
 }
 
 module.exports = Users;

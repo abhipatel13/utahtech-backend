@@ -8,8 +8,7 @@ module.exports.createUser = async (req, res) => {
   try {
     requiredFields.forEach((field) => {
       if (!req.body[field] || req.body[field] === "") {
-        // return res.status(400).send({ status: 400, message: `${field} is required` });
-        throw new Error(`${field} is required`);
+        return res.status(400).send({ status: 400, message: `${field} is required` });
       }
     });
 
@@ -17,22 +16,19 @@ module.exports.createUser = async (req, res) => {
     let user = req.body;
     const existingUser = await User.findOne({ where: { email: user.email } });
     if (existingUser) {
-      // return res.status(400).send({ status: 400, message: "Email is already associated with an account" });
-      throw new Error("Email is already associated with an account");
+      return res.status(400).send({ status: 400, message: "Email is already associated with an account" });
     }
 
     // Lookup the company id, if not provided
     if (user.company_id === undefined || user.company_id === "") {
       if (user.company === undefined || user.company === "") {
-        // return res.status(400).send({ status: 400, message: "Company is required" });
-        throw new Error("Company is required");
+        return res.status(400).send({ status: 400, message: "Company is required" });
       }
       const company = await models.company.findOne({
         where: { name: user.company },
       });
       if (!company) {
-        // return res.status(404).send({ status: 404, message: "Company not found" });
-        throw new Error("Company not found");
+        return res.status(404).send({ status: 404, message: "Company not found" });
       }
       user.company_id = company.id;
     }
@@ -44,13 +40,11 @@ module.exports.createUser = async (req, res) => {
     }
 
     // Create new user
-    // const newUser = await User.create(user);
-    console.log(user);
-    // return res.status(201).send({ status: 201, data: newUser });
-    console.log("User created successfully");
+    const newUser = await User.create(user);
+    console.log(newUser);
+    return res.status(201).send({ status: 201, data: newUser });
   } catch (err) {
-    // return res.status(500).send(err);
-    throw new Error(err.message || "An error occurred while creating the user");
+    return res.status(500).send(err);
   }
 };
 
