@@ -20,6 +20,8 @@ exports.create = async (req, res) => {
     // Validate each asset
     const validationErrors = [];
     req.body.assets.forEach((asset, index) => {
+      console.log("asset", asset);
+      
       if (!asset.name) {
         validationErrors.push(`Asset at index ${index} is missing required field: name`);
       }
@@ -48,6 +50,7 @@ exports.create = async (req, res) => {
 
           return AssetHierarchy.create({
             id: uniqueId,
+            companyId: asset.companyId,
             name: asset.name,
             description: asset.description || null,
             level: parseInt(asset.level) || 0,

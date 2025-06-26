@@ -8,8 +8,9 @@ class AssetHierarchy extends Sequelize.Model {
         primaryKey: true,
         allowNull: false
       },
-      company_id: {
+      companyId: {
         type: Sequelize.INTEGER,
+        field: 'company_id',
         allowNull: false,
         references: {
           model: 'company',
@@ -18,49 +19,54 @@ class AssetHierarchy extends Sequelize.Model {
       },
       name: {
         type: Sequelize.STRING,  // Functional Location Description
+        field: 'name',
         allowNull: false
       },
-      cmms_internal_id: {
+      cmmsInternalId: {
         type: Sequelize.STRING,  // CMMS Internal ID
         field: 'cmms_internal_id',
         allowNull: false
       },
-      functional_location: {
+      functionalLocation: {
         type: Sequelize.STRING,  // Functional Location
+        field: 'functional_location',
         allowNull: false
       },
-      functional_location_desc: {
+      functionalLocationDesc: {
         type: Sequelize.STRING,  // Functional Location Description
+        field: 'functional_location_desc',
         allowNull: false
       },
-      functional_location_long_desc: {
+      functionalLocationLongDesc: {
         type: Sequelize.TEXT,    // Functional Location Long Description
+        field: 'functional_location_long_desc',
         allowNull: true
       },
-      parent_id: {
+      parent: {
         type: Sequelize.STRING,  // Parent Functional Location
+        field: 'parent_id',
         allowNull: true,
         references: {
           model: 'asset_hierarchy',
           key: 'id'
         }
       },
-      maintenance_plant: {
+      maintenancePlant: {
         type: Sequelize.STRING,  // Maintenance Plant
         field: 'maintenance_plant',
         allowNull: true
       },
-      cmms_system: {
+      cmmsSystem: {
         type: Sequelize.STRING,  // CMMS System
         field: 'cmms_system',
         allowNull: true
       },
-      object_type: {
+      objectType: {
         type: Sequelize.STRING,  // Object Type (Taxonomy Mapping Value)
         field: 'object_type',
         allowNull: true
       },
-      system_status: {
+      systemStatus: {
         type: Sequelize.STRING,  // System Status
         field: 'system_status',
         defaultValue: 'Active',
@@ -68,19 +74,22 @@ class AssetHierarchy extends Sequelize.Model {
       },
       make: {
         type: Sequelize.STRING,
+        field: 'make',
         allowNull: true
       },
       manufacturer: {
         type: Sequelize.STRING,
+        field: 'manufacturer',
         allowNull: true
       },
-      serial_number: {
+      serialNumber: {
         type: Sequelize.STRING,
         field: 'serial_number',
         allowNull: true
       },
       level: {
         type: Sequelize.INTEGER,
+        field: 'level',
         allowNull: false,
         defaultValue: 0
       }
@@ -98,12 +107,12 @@ class AssetHierarchy extends Sequelize.Model {
   static associate(models) {
     this.hasMany(models.asset_hierarchy, {
       foreignKey: 'parent_id',
-      as: 'child'
+      as: 'childId'
     })
 
     this.belongsTo(models.asset_hierarchy, {
       foreignKey: 'parent_id',
-      as: 'parent'
+      as: 'parentId'
     });
     
     this.belongsTo(models.company, { 
