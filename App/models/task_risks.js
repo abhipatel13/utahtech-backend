@@ -1,24 +1,27 @@
-module.exports = (sequelize, Sequelize) => {
-  const TaskRisk = sequelize.define("task_risks", {
-    id: {
-      type: Sequelize.INTEGER,
-      primaryKey: true,
-      autoIncrement: true
-    },
-    taskHazard_id: {
-      type: Sequelize.STRING,
-      allowNull: false
-    },
-    riskDescription: {
-      type: Sequelize.TEXT,
-      allowNull: false
-    },
-    riskType: {
-      type: Sequelize.STRING,
-      allowNull: false
-    },
-    asIsLikelihood: {
-      type: Sequelize.INTEGER,
+const { Sequelize } = require('sequelize');
+
+class TaskRisk extends Sequelize.Model {
+  static init(sequelize, DataTypes) {
+    return super.init({
+      id: {
+        type: DataTypes.INTEGER,
+        primaryKey: true,
+        autoIncrement: true
+      },
+      taskHazard_id: {
+        type: DataTypes.STRING,
+        allowNull: false
+      },
+      riskDescription: {
+        type: DataTypes.TEXT,
+        allowNull: false
+      },
+      riskType: {
+        type: DataTypes.STRING,
+        allowNull: false
+      },
+      asIsLikelihood: {
+      type: DataTypes.INTEGER,
       allowNull: false,
       get() {
         const value = this.getDataValue('asIsLikelihood');
@@ -33,7 +36,7 @@ module.exports = (sequelize, Sequelize) => {
       }
     },
     asIsConsequence: {
-      type: Sequelize.INTEGER,
+      type: DataTypes.INTEGER,
       allowNull: false,
       get() {
         const value = this.getDataValue('asIsConsequence');
@@ -48,15 +51,15 @@ module.exports = (sequelize, Sequelize) => {
       }
     },
     mitigatingAction: {
-      type: Sequelize.TEXT,
+      type: DataTypes.TEXT,
       allowNull: false
     },
     mitigatingActionType: {
-      type: Sequelize.STRING,
+      type: DataTypes.STRING,
       allowNull: false
     },
     mitigatedLikelihood: {
-      type: Sequelize.INTEGER,
+      type: DataTypes.INTEGER,
       allowNull: false,
       get() {
         const value = this.getDataValue('mitigatedLikelihood');
@@ -71,7 +74,7 @@ module.exports = (sequelize, Sequelize) => {
       }
     },
     mitigatedConsequence: {
-      type: Sequelize.INTEGER,
+      type: DataTypes.INTEGER,
       allowNull: false,
       get() {
         const value = this.getDataValue('mitigatedConsequence');
@@ -86,23 +89,25 @@ module.exports = (sequelize, Sequelize) => {
       }
     },
     requiresSupervisorSignature: {
-      type: Sequelize.BOOLEAN,
+      type: DataTypes.BOOLEAN,
       defaultValue: false
     }
-  }, {
-    tableName: 'task_risks',
-    timestamps: true,
-    underscored: true
-  });
+    }, {
+      sequelize,
+      modelName: 'task_risks',
+      tableName: 'task_risks',
+      timestamps: true,
+      underscored: true,
+      paranoid: true
+    });
+  }
 
-  // Define the association
-  TaskRisk.associate = function(models) {
-    // A TaskRisk belongs to a TaskHazard
-    TaskRisk.belongsTo(models.task_hazards, { 
+  static associate(models) {
+    this.belongsTo(models.task_hazards, { 
       foreignKey: 'taskHazard_id',
       as: 'hazards'
     });
-  };
+  }
+}
 
-  return TaskRisk;
-}; 
+module.exports = TaskRisk;

@@ -1,34 +1,40 @@
-module.exports = (sequelize, Sequelize) => {
-  const Company = sequelize.define("company", {
-    name: {
-      type: Sequelize.STRING(150),
-      allowNull: false
-    }
-  }, {
-    tableName: 'company',
-    timestamps: true,
-    underscored: true,
-    paranoid: true
-  });
+const { Sequelize } = require('sequelize');
 
-  Company.associate = function(models) {
-    Company.hasMany(models.users, {
+class Company extends Sequelize.Model {
+  static init(sequelize, DataTypes) {
+    return super.init({
+      name: {
+        type: DataTypes.STRING(150),
+        allowNull: false
+      }
+    },
+    {
+      sequelize,
+      modelName: 'company',
+      tableName: 'company',
+      timestamps: true,
+      underscored: true,
+      paranoid: true
+    });
+  }
+
+  static associate(models) {
+    this.hasMany(models.user, {
       foreignKey: 'company_id',
       as: 'users'
     });
-    Company.hasMany(models.task_hazards);
+    this.hasMany(models.task_hazards);
 
-    Company.hasMany(models.asset_hierarchy, { 
+    this.hasMany(models.asset_hierarchy, { 
       foreignKey: 'company_id',
       as: 'assets'
     });
 
-    Company.hasMany(models.tactics, { 
+    this.hasMany(models.tactics, { 
       foreignKey: 'company_id',
       as: 'tactics'
     });
-    
-  };
-
-  return Company;
+  }
 }
+
+module.exports = Company;

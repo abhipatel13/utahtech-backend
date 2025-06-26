@@ -26,20 +26,33 @@ fs
   .forEach(file => {
     // Skip User.js as it's a class, not a Sequelize model
     if (file === 'User.js') return;
-    if (file === 'users.js') return;
     
-    const model = require(path.join(__dirname, file))(sequelize, Sequelize.DataTypes);
+    const modelClass = require(path.join(__dirname, file));
+    const model = modelClass.init(sequelize, Sequelize.DataTypes);
+
     db[model.name] = model;
   });
 
-// Imports user model separately as its a class extending Sequelize.Model instead of a sequelize.define
-const usersModel = require("./users.js");
-const users = usersModel.init(sequelize, Sequelize.DataTypes);
-db.users = users;
+// Imports user and company models separately as its a class extending Sequelize.Model instead of a sequelize.define
+// const companyModel = require("./company.js");
+// const company = companyModel.init(sequelize, Sequelize.DataTypes);
+// db.company = company;
 
+// const usersModel = require("./users.js");
+// const users = usersModel.init(sequelize, Sequelize.DataTypes);
+// db.users = users;
+
+// Initialize model associations
 Object.keys(db).forEach(modelName => {
   if (db[modelName].associate) {
     db[modelName].associate(db);
+  }
+});
+
+// Initialize model scopes
+Object.keys(db).forEach(modelName => {
+  if (db[modelName].scopes) {
+    db[modelName].scopes(db);
   }
 });
 

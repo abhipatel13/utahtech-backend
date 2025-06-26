@@ -1,6 +1,6 @@
 const db = require('../models');
 const { checkPermission } = require('../middleware/auth');
-const User = require('../models/User');
+// const User = require('../models/User');
 const { v4: uuidv4 } = require('uuid');
 
 // Create a new Tactic
@@ -16,7 +16,7 @@ exports.create = async (req, res) => {
     // Create the tactic with all fields
     const tactic = await db.tactics.create({
       id: uuidv4(),
-      company: req.user.company,
+      company_id: req.user.company,
       analysisName,
       location,
       status,
@@ -45,7 +45,7 @@ exports.findAll = async (req, res) => {
 
     const tactics = await db.tactics.findAll({
       where: {
-        company: req.user.company
+        company_id: req.user.company.id
       }
     });
     
@@ -74,7 +74,7 @@ exports.findOne = async (req, res) => {
     const tactic = await db.tactics.findOne({
       where: {
         id: req.params.id,
-        company: req.user.company
+        company_id: req.user.company
       },
       include: [{
         model: db.User,

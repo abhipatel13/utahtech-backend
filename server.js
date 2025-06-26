@@ -34,11 +34,13 @@ const db = require("./App/models");
 
 // Sync database without dropping tables
 db.sequelize.sync().then(function () {
+// db.sequelize.sync({ alter:true }).then(function () {
   console.log("Database synced.");
+  // console.log("models:", db.sequelize.models);
 
   // Seeds the database with users TODO::Remove after testing
   // const createUsers = require("./scripts/createUsers");
-  // createUsers(db.sequelize)
+  // createUsers()
   //   .then(() => {
   //     console.log("Users created successfully.");
   //   })

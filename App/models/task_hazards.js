@@ -1,76 +1,81 @@
-module.exports = (sequelize, Sequelize) => {
-  const TaskHazard = sequelize.define("task_hazards", {
-    id: {
-      type: Sequelize.STRING,
-      primaryKey: true,
-      allowNull: false
-    },
-    company_id: {
-      type: Sequelize.INTEGER,
-      allowNull: false,
-      references: {
-        model: 'company',
-        key: 'id'
-      }
-    },
-    date: {
-      type: Sequelize.DATEONLY,
-      allowNull: false
-    },
-    time: {
-      type: Sequelize.TIME,
-      allowNull: false
-    },
-    scope_of_work: {
-      type: Sequelize.TEXT,
-      allowNull: false
-    },
-    asset_hierarchy_id: {
-      type: Sequelize.STRING,
-      allowNull: true,
-      references: {
-        model: 'asset_hierarchy',
-        key: 'id'
-      }
-    },
-    system_lockout_required: {
-      type: Sequelize.BOOLEAN,
-      defaultValue: false
-    },
-    trained_workforce: {
-      type: Sequelize.STRING,
-      allowNull: false
-    },
-    individual: {
-      type: Sequelize.STRING,
-      allowNull: false
-    },
-    supervisor: {
-      type: Sequelize.STRING,
-      allowNull: false
-    },
-    location: {
-      type: Sequelize.STRING,
-      allowNull: false
-    },
-    status: {
-      type: Sequelize.ENUM('Active', 'Inactive', 'Completed', 'Pending', 'Rejected'),
-      defaultValue: 'Pending'
-    },
-    geofence_limit: {
-      type: Sequelize.INTEGER,
-      allowNull: false,
-      defaultValue: 200
-    }
-  }, {
-    tableName: 'task_hazards',
-    timestamps: true,
-    underscored: true
+const { Sequelize } = require('sequelize');
 
-  });
+class TaskHazard extends Sequelize.Model {
+  static init(sequelize, DataTypes) {
+    return super.init({
+      id: {
+        type: DataTypes.STRING,
+        primaryKey: true,
+        allowNull: false
+      },
+      company_id: {
+        type: DataTypes.INTEGER,
+        allowNull: false,
+        references: {
+          model: 'company',
+          key: 'id'
+        }
+      },
+      date: {
+        type: DataTypes.DATEONLY,
+        allowNull: false
+      },
+      time: {
+        type: DataTypes.TIME,
+        allowNull: false
+      },
+      scope_of_work: {
+        type: DataTypes.TEXT,
+        allowNull: false
+      },
+      asset_hierarchy_id: {
+        type: DataTypes.STRING,
+        allowNull: true,
+        references: {
+          model: 'asset_hierarchy',
+          key: 'id'
+        }
+      },
+      system_lockout_required: {
+        type: DataTypes.BOOLEAN,
+        defaultValue: false
+      },
+      trained_workforce: {
+        type: DataTypes.STRING,
+        allowNull: false
+      },
+      individual: {
+        type: DataTypes.STRING,
+        allowNull: false
+      },
+      supervisor: {
+        type: DataTypes.STRING,
+        allowNull: false
+      },
+      location: {
+        type: DataTypes.STRING,
+        allowNull: false
+      },
+      status: {
+        type: DataTypes.ENUM('Active', 'Inactive', 'Completed', 'Pending', 'Rejected'),
+        defaultValue: 'Pending'
+      },
+      geofence_limit: {
+        type: DataTypes.INTEGER,
+        allowNull: false,
+        defaultValue: 200
+      }
+    }, {
+      sequelize,
+      modelName: 'task_hazards',
+      tableName: 'task_hazards',
+      timestamps: true,
+      underscored: true,
+      paranoid: true
+    });
+  }
 
-  // Define the association
-  TaskHazard.associate = function(models) {
+  static associate(models) {
     TaskHazard.belongsTo(models.asset_hierarchy, {
       foreignKey: 'asset_hierarchy_id',
       as: 'asset'
@@ -85,7 +90,7 @@ module.exports = (sequelize, Sequelize) => {
       foreignKey: 'taskHazard_id', 
       as: 'risks' 
     });
-  };
+  }
+}
 
-  return TaskHazard;
-}; 
+module.exports = TaskHazard;

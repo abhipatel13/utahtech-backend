@@ -1,68 +1,80 @@
-module.exports = (sequelize, Sequelize) => {
-  const Payment = sequelize.define("payments", {
-    id: {
-      allowNull: false,
-      autoIncrement: true,
-      primaryKey: true,
-      type: Sequelize.INTEGER
-    },
-    userId: {
-      type: Sequelize.INTEGER,
-      allowNull: false,
-      references: {
-        model: 'users',
-        key: 'id'
-      }
-    },
-    amount: {
-      type: Sequelize.DECIMAL(10, 2),
-      allowNull: false
-    },
-    paymentDate: {
-      type: Sequelize.DATE,
-      defaultValue: Sequelize.NOW,
-      allowNull: true
-    },
-    validUntil: {
-      type: Sequelize.DATE,
-      allowNull: true
-    },
-    status: {
-      type: Sequelize.ENUM('pending', 'completed', 'failed'),
-      defaultValue: 'pending'
-    },
-    transactionId: {
-      type: Sequelize.STRING,
-      unique: true
-    },
-    paymentMethod: {
-      type: Sequelize.STRING,
-      allowNull: false
-    },
-    processedBy: {
-      type: Sequelize.INTEGER,
-      allowNull: false,
-      references: {
-        model: 'users',
-        key: 'id'
-      }
-    },
-    createdAt: {
-      field: 'created_at',
-      type: Sequelize.DATE,
-      allowNull: false
-    },
-    updatedAt: {
-      field: 'updated_at',
-      type: Sequelize.DATE,
-      allowNull: false
-    }
-  });
+const { Sequelize } = require('sequelize');
 
-  Payment.associate = function(models) {
-    Payment.belongsTo(models.users, { foreignKey: 'userId', as: 'user' });
-    Payment.belongsTo(models.users, { foreignKey: 'processedBy', as: 'processor' });
-  };
+class Payment extends Sequelize.Model {
+  static init(sequelize, DataTypes) {
+    return super.init({
+      id: {
+        allowNull: false,
+        autoIncrement: true,
+        primaryKey: true,
+        type: DataTypes.INTEGER
+      },
+      userId: {
+        type: DataTypes.INTEGER,
+        allowNull: false,
+        references: {
+          model: 'users',
+          key: 'id'
+        }
+      },
+      amount: {
+        type: DataTypes.DECIMAL(10, 2),
+        allowNull: false
+      },
+      paymentDate: {
+        type: DataTypes.DATE,
+        defaultValue: new Date(),
+        allowNull: true
+      },
+      validUntil: {
+        type: DataTypes.DATE,
+        allowNull: true
+      },
+      status: {
+        type: DataTypes.ENUM('pending', 'completed', 'failed'),
+        defaultValue: 'pending'
+      },
+      transactionId: {
+        type: DataTypes.STRING,
+        unique: true
+      },
+      paymentMethod: {
+        type: DataTypes.STRING,
+        allowNull: false
+      },
+      processedBy: {
+        type: DataTypes.INTEGER,
+        allowNull: false,
+        references: {
+          model: 'users',
+          key: 'id'
+        }
+      },
+      createdAt: {
+        field: 'created_at',
+        type: DataTypes.DATE,
+        allowNull: false,
+        defaultValue: new Date()
+      },
+      updatedAt: {
+        field: 'updated_at',
+        type: DataTypes.DATE,
+        allowNull: false,
+        defaultValue: new Date()
+      }
+    }, {
+      sequelize,
+      modelName: 'payments',
+      tableName: 'payments',
+      underscored: true,
+      paranoid: true
+    });
+  }
 
-  return Payment;
-}; 
+  static associate(models) {
+    this.belongsTo(models.user, { foreignKey: 'userId', as: 'user' });
+    this.belongsTo(models.user, { foreignKey: 'processedBy', as: 'processor' });
+  }
+}
+
+module.exports = Payment;

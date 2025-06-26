@@ -66,23 +66,10 @@ class Users extends Sequelize.Model {
         },
         last_login: {
           type: DataTypes.DATE,
-          defaultValue: new Date()
+          defaultValue: new Date(0),
         }
       },
       {
-        // Password is excluded by default, but can be included by using the 'auth' scope
-        defaultScope: {
-          attributes: {
-            exclude: ['password'],
-            include: [{ model: sequelize.models.company, as: 'company'}]
-          }
-        },
-        scopes: {
-          auth: {
-            exclude: [],
-            include: [{ model: sequelize.models.company, as: 'company'}]
-          }
-        },
         sequelize,
         modelName: 'user',
         tableName: 'users',
@@ -94,26 +81,36 @@ class Users extends Sequelize.Model {
   };
 
   static associate(models) {
-    this.uploadAssociation = models.users.hasMany(models.file_uploads);
-    this.resetPassAssociation = models.users.hasMany(models.reset_passwords, {
+    this.uploadAssociation = models.user.hasMany(models.file_uploads);
+    this.resetPassAssociation = models.user.hasMany(models.reset_passwords, {
       foreignKey: 'user_id',
       as: 'reset_passwords'
     });	
-    this.subordinateAssociation = models.users.hasMany(models.users, {
+    this.subordinateAssociation = models.user.hasMany(models.user, {
       foreignKey: 'supervisor_id',
       as: 'subordinate'
     });
-    this.supervisorAssociation = models.users.belongsTo(models.users, {
+    this.supervisorAssociation = models.user.belongsTo(models.user, {
       foreignKey: 'supervisor_id',
       as: 'supervisor'
     });
-    this.paymentsAssociation = models.users.hasMany(models.payments, {foreignKey: 'userId', as: 'payments'});
-    this.companyAssociation = models.users.belongsTo(models.company, {
+    this.paymentsAssociation = models.user.hasMany(models.payments, {foreignKey: 'userId', as: 'payments'});
+    this.companyAssociation = models.user.belongsTo(models.company, {
       foreignKey: 'company_id',
       as: 'company'
     });
   };
 
+  static scopes(models) {
+    // Password is excluded by default, but can be included by using the 'auth' scope
+    this.addScope('defaultScope', {
+      exclude: ['password'],
+      include: [{ model: models.company, as: 'company' }]
+    });
+    this.addScope('auth', {
+        include: [{ model: models.company, as: 'company' }]
+    });
+  }
 
   // The below methods are replacements for User class methods
   async comparePassword(candidatePassword) {
@@ -165,3 +162,31 @@ class Users extends Sequelize.Model {
 
 module.exports = Users;
 
+
+
+
+
+// const { Sequelize } = require('sequelize');
+
+// class CLASSNAME extends Sequelize.Model {
+//   static init(sequelize, DataTypes) {
+//     return super.init(
+//       {
+        
+//       },
+//       {
+//         sequelize,
+//         modelName: 'user',
+//         tableName: 'users',
+//         timestamps: true,
+//         underscored: true,
+//         paranoid: true
+//       }
+//     );
+//   };
+
+//   static associate(models) {
+//   };
+// }
+
+// module.exports = CLASSNAME;
