@@ -50,7 +50,7 @@ exports.create = async (req, res) => {
 
           return AssetHierarchy.create({
             id: uniqueId,
-            companyId: asset.companyId,
+            companyId: req.body.company.id,
             name: asset.name,
             description: asset.description || null,
             level: parseInt(asset.level) || 0,
@@ -338,7 +338,10 @@ exports.uploadCSV = async (req, res) => {
 exports.findAll = async (req, res) => {
   try {
     const assets = await AssetHierarchy.findAll({
-      order: [['level', 'ASC'], ['name', 'ASC']]
+      order: [['level', 'ASC'], ['name', 'ASC']],
+      where: {
+        companyId: req.user.company_id
+      }
     });
 
     console.log("assets", assets);

@@ -13,34 +13,40 @@ const dbConfig = {
 // Test users with different roles
 const users = [
   {
+    email: 'superuser1@utahtechnicalservicesllc.com',
+    password: 'superuser123',
+    role: 'superuser',
+    company_id: 3  
+  },
+  {
     email: 'superuser@utahtechnicalservicesllc.com',
     password: 'superuser123',
     role: 'superuser',
-    company: 'Utah Tech Services'
+    company_id: 2
   },
   {
     email: 'admin@utahtechnicalservicesllc.com',
     password: 'admin123',
     role: 'admin',
-    company: 'Utah Tech Services'
+    company_id: 2
   },
   {
     email: 'supervisor@utahtechnicalservicesllc.com',
     password: 'supervisor123',
     role: 'supervisor',
-    company: 'Utah Tech Services'
+    company_id: 2
   },
   {
     email: 'user@utahtechnicalservicesllc.com',
     password: 'user123',
     role: 'user',
-    company: 'Utah Tech Services'
+      company_id: 2
   },
   {
     email: 'newsuperuser@utahtechnicalservicesllc.com',
     password: 'newsuperuser123',
     role: 'superuser',
-    company: 'New Tech Company'
+    company_id: 2
   }
 ];
 
@@ -85,8 +91,8 @@ const seedUsers = async () => {
         
         // Insert user
         await connection.execute(
-          'INSERT INTO users (email, password, role, company) VALUES (?, ?, ?, ?)',
-          [userData.email, hashedPassword, userData.role, userData.company]
+          'INSERT INTO users (email, password, role, company_id) VALUES (?, ?, ?, ?)',
+          [userData.email, hashedPassword, userData.role, userData.company_id]
         );
         
         console.log(`Created user: ${userData.email} with role: ${userData.role} and company: ${userData.company}`);

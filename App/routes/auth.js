@@ -52,7 +52,6 @@ router.post('/login', async (req, res) => {
     const user = await db.sequelize.models.user.scope('auth').findOne({
       where: { email:email }
     });
-    console.log("user", user);
 
     if (!user) {
       return res.status(401).json({
@@ -89,7 +88,7 @@ router.post('/login', async (req, res) => {
           _id: user.id,
           email: user.email,
           role: user.role,
-          company: user.company
+          company_id: user.company_id
         },
         token
       },
