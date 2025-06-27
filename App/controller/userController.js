@@ -14,24 +14,13 @@ module.exports.createUser = async (req, res) => {
 
     // Check if email is already in use
     let user = req.body;
+    user.company_id = req.user.company_id;
     const existingUser = await User.findOne({ where: { email: user.email } });
     if (existingUser) {
       return res.status(400).send({ status: 400, message: "Email is already associated with an account" });
     }
 
-    // Lookup the company id, if not provided
-    if (user.company_id === undefined || user.company_id === "") {
-      if (user.company === undefined || user.company === "") {
-        return res.status(400).send({ status: 400, message: "Company is required" });
-      }
-      const company = await models.company.findOne({
-        where: { name: user.company },
-      });
-      if (!company) {
-        return res.status(404).send({ status: 404, message: "Company not found" });
-      }
-      user.company_id = company.id;
-    }
+    
 
     // Verfify password is hashed
     const hashRegex = /^\$2b\$/;
