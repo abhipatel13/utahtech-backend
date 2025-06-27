@@ -1,5 +1,5 @@
 const models = require("../models");
-const User = models.users;
+const User = models.user;
 const Op = models.Sequelize.Op;
 const bcrypt = require("bcryptjs");
 
@@ -50,17 +50,39 @@ module.exports.createUser = async (req, res) => {
 
 module.exports.getAllUser = async (req, res) => {
   try {
-    const result = await User.findAll({
-      attributes: ["id", "email", "name", "phone_no", "profile_pic"],
+    console.log("getAllUser");
+    
+    // Check if user has permission to view all users
+    if (!req.user || !['admin', 'superuser'].includes(req.user.role)) {
+      return res.status(403).send({ 
+        status: 403, 
+        message: "Access denied. Admin privileges required to view all users." 
+      });
+    }
+
+    const result = await User.unscoped().findAll({
+      attributes: ["id", "email", "name", "phone_no", "profile_pic","role", "company_id","supervisor_id","createdAt","updatedAt"],
+      include: [
+        {
+          model: models.company,
+          as: 'company',
+          attributes: ["id", "name"],
+        },
+      ],
+      where: {
+        deleted_at: null, 
+        company_id: req.user.company_id 
+      }
     });
 
     if (result.length) {
-      return res.status(201).send({ status: 201, data: result });
+      return res.status(200).send({ status: 200, data: result });
     } else {
-      return res.status(401).send({ status: 401, message: "User not Found" });
+      return res.status(404).send({ status: 404, message: "No users found" });
     }
   } catch (err) {
-    return res.status(500).send(err);
+    console.error("Error in getAllUser:", err);
+    return res.status(500).send({ status: 500, message: "Internal server error", error: err.message });
   }
 };
 
@@ -108,3 +130,57 @@ module.exports.getUserById = async function (req, res) {
     return res.status(500).send(e);
   }
 };
+
+module.exports.deleteUser = async (req, res) => {
+  try {
+    const userId = req.params.id;
+    console.log("userId",userId);
+    const user = await User.findOne({ where: { id: userId } });
+    if (!user) {
+      return res.status(404).send({ status: 404, message: "User not found" });
+    }
+    await user.destroy();
+    return res.status(200).send({ status: 200, message: "User deleted successfully" });
+  } catch (err) {
+    return res.status(500).send(err);
+  }
+};
+
+// Alternative raw SQL approach (uncomment if unscoped() still doesn't work)
+/*
+module.exports.getAllUserRaw = async (req, res) => {
+  try {
+    console.log("getAllUser with raw SQL");
+    
+    // Check if user has permission to view all users
+    if (!req.user || !['admin', 'superuser'].includes(req.user.role)) {
+      return res.status(403).send({ 
+        status: 403, 
+        message: "Access denied. Admin privileges required to view all users." 
+      });
+    }
+
+    const [results] = await models.sequelize.query(`
+      SELECT 
+        u.id, u.email, u.name, u.phone_no, u.profile_pic, u.role, 
+        u.company_id, u.supervisor_id, u.created_at as createdAt, u.updated_at as updatedAt,
+        c.id as "company.id", c.name as "company.name"
+      FROM users u
+      LEFT JOIN company c ON u.company_id = c.id
+      WHERE u.deleted_at IS NULL
+      ORDER BY u.id
+    `);
+
+    console.log("Raw SQL result", results);
+
+    if (results.length) {
+      return res.status(200).send({ status: 200, data: results });
+    } else {
+      return res.status(404).send({ status: 404, message: "No users found" });
+    }
+  } catch (err) {
+    console.error("Error in getAllUserRaw:", err);
+    return res.status(500).send({ status: 500, message: "Internal server error", error: err.message });
+  }
+};
+*/

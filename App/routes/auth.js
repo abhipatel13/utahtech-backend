@@ -1,7 +1,8 @@
 const express = require('express');
 const router = express.Router();
 const jwt = require('jsonwebtoken');
-const User = require('../models/User');
+const models = require('../models');
+const User = models.user;
 const { auth, checkRole } = require('../middleware/auth');
 const authController = require('../controller/authController');
 
@@ -11,7 +12,7 @@ router.post('/register', auth, checkRole(['superuser', 'admin']), async (req, re
     const { email, password, role } = req.body;
 
     // Check if user already exists
-    const existingUser = await User.findByEmail(email);
+    const existingUser = await User.findOne({ where: { email } });
     
     if (existingUser) {
       return res.status(400).json({ error: 'User already exists' });
@@ -118,7 +119,7 @@ router.post('/logout', auth, async (req, res) => {
 // Get current user profile
 router.get('/profile', auth, async (req, res) => {
   try {
-    const user = await User.findById(req.user.id);
+    const user = await User.findByPk(req.user.id);
     if (!user) {
       return res.status(404).json({ error: 'User not found' });
     }

@@ -24,23 +24,11 @@ fs
     return (file.indexOf('.') !== 0) && (file !== basename) && (file.slice(-3) === '.js');
   })
   .forEach(file => {
-    // Skip User.js as it's a class, not a Sequelize model
-    if (file === 'User.js') return;
-    
     const modelClass = require(path.join(__dirname, file));
     const model = modelClass.init(sequelize, Sequelize.DataTypes);
 
     db[model.name] = model;
   });
-
-// Imports user and company models separately as its a class extending Sequelize.Model instead of a sequelize.define
-// const companyModel = require("./company.js");
-// const company = companyModel.init(sequelize, Sequelize.DataTypes);
-// db.company = company;
-
-// const usersModel = require("./users.js");
-// const users = usersModel.init(sequelize, Sequelize.DataTypes);
-// db.users = users;
 
 // Initialize model associations
 Object.keys(db).forEach(modelName => {
@@ -58,10 +46,6 @@ Object.keys(db).forEach(modelName => {
 
 db.Sequelize = Sequelize;
 db.sequelize = sequelize;
-
-// Import User model directly (it's a class, not a Sequelize model)
-const User = require("./User.js");
-db.User = User;
 
 module.exports = db;
 
