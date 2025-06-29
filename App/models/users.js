@@ -99,6 +99,8 @@ class Users extends Sequelize.Model {
       foreignKey: 'company_id',
       as: 'company'
     });
+    this.hasMany(models.task_hazards, { foreignKey: 'supervisorId' });
+    this.hasMany(models.task_hazards, { foreignKey: 'individualId' });
   };
 
   static scopes(models) {

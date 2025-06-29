@@ -8,8 +8,8 @@ class TaskRisk extends Sequelize.Model {
         primaryKey: true,
         autoIncrement: true
       },
-      taskHazard_id: {
-        type: DataTypes.STRING,
+      taskHazardId: {
+        type: DataTypes.INTEGER,
         allowNull: false
       },
       riskDescription: {
@@ -104,8 +104,8 @@ class TaskRisk extends Sequelize.Model {
 
   static associate(models) {
     this.belongsTo(models.task_hazards, { 
-      foreignKey: 'taskHazard_id',
-      as: 'hazards'
+      foreignKey: 'taskHazardId',
+      as: 'hazard'
     });
   }
 }

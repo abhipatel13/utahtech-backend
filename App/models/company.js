@@ -26,7 +26,7 @@ class Company extends Sequelize.Model {
     this.hasMany(models.task_hazards);
 
     this.hasMany(models.asset_hierarchy, { 
-      foreignKey: 'company_id',
+      foreignKey: 'companyId',
       as: 'assets'
     });
 

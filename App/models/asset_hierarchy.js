@@ -106,22 +106,22 @@ class AssetHierarchy extends Sequelize.Model {
 
   static associate(models) {
     this.hasMany(models.asset_hierarchy, {
-      foreignKey: 'parent_id',
+      foreignKey: 'parent',
       as: 'childId'
     })
 
     this.belongsTo(models.asset_hierarchy, {
-      foreignKey: 'parent_id',
+      foreignKey: 'parent',
       as: 'parentId'
     });
     
     this.belongsTo(models.company, { 
-      foreignKey: 'company_id',
+      foreignKey: 'companyId',
       as: 'company'
     });
 
     this.hasMany(models.task_hazards, { 
-      foreignKey: 'asset_hierarchy_id',
+      foreignKey: 'assetHierarchyId',
       as: 'taskHazards'
     });
   };

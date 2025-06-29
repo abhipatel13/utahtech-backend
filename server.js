@@ -29,14 +29,12 @@ app.set("port", port);
  * Create HTTP server.
  */
 const server = http.createServer(app);
-
 const db = require("./App/models");
 
 // Sync database without dropping tables
 db.sequelize.sync().then(function () {
 // db.sequelize.sync({ alter:true }).then(function () {
   console.log("Database synced.");
-  // console.log("models:", db.sequelize.models);
 
   // Seeds the database with users TODO::Remove after testing
   // const createUsers = require("./scripts/createUsers");
@@ -47,21 +45,6 @@ db.sequelize.sync().then(function () {
   //   .catch((err) => {
   //     console.error("Error creating users:", err);
   //   });
-
-  // Adds a single user TODO::Remove after testing
-  // const UserController = require("./App/controller/userController");
-  // try {
-  //   UserController.createUser({
-  //     body: {
-  //       email: "superuser2@madeupminingco.com",
-  //       password: "superuser2123",
-  //       role: "superuser",
-  //       company: "Madeup Mining Co",
-  //     },
-  //   });
-  // } catch (err) {
-  //   console.error("Error creating user:", err.message);
-  // }
 
   /**
    * Listen on provided port, on all network interfaces.

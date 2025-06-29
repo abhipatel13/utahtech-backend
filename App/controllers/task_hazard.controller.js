@@ -1,8 +1,7 @@
 const db = require("../models");
 const TaskHazard = db.task_hazards;
 const TaskRisk = db.task_risks;
-const AssetHierarchy = db.asset_hierarchy;
-const { Op } = require("sequelize");
+const User = db.user;
 
 // Helper function to convert likelihood and consequence strings to integers
 const convertToInteger = (value) => {
@@ -45,68 +44,18 @@ const convertToInteger = (value) => {
   return 1; // Default fallback
 };
 
-// Function to generate the next task ID with locking to prevent duplicates
-const generateNextTaskId = async (transaction) => {
-  try {
-    // Get the latest task hazard with a lock to prevent concurrent access
-    const latestTask = await TaskHazard.findOne({
-      order: [['id', 'DESC']],
-      lock: true,
-      transaction
-    });
-
-    if (!latestTask) {
-      return 'TZ1'; // First task ID
-    }
-
-    // Extract the number from the latest ID (e.g., 'TZ1' -> 1)
-    const lastNumber = parseInt(latestTask.id.replace('TZ', ''));
-    
-    // Verify the generated ID doesn't exist
-    const nextId = `TZ${lastNumber + 1}`;
-    const existingTask = await TaskHazard.findByPk(nextId, { transaction });
-    
-    if (existingTask) {
-      // If ID exists, find the next available number
-      const allTasks = await TaskHazard.findAll({
-        attributes: ['id'],
-        order: [['id', 'ASC']],
-        transaction
-      });
-      
-      const usedNumbers = new Set(
-        allTasks.map(task => parseInt(task.id.replace('TZ', '')))
-      );
-      
-      let nextNumber = 1;
-      while (usedNumbers.has(nextNumber)) {
-        nextNumber++;
-      }
-      
-      return `TZ${nextNumber}`;
-    }
-    
-    return nextId;
-  } catch (error) {
-    console.error('Error generating task ID:', error);
-    throw new Error('Failed to generate task ID');
-  }
-};
-
 // Create and Save a new Task Hazard
 exports.create = async (req, res) => {
+  console.log("STARTED: create");
   let transaction;
   
   try {
     // Start transaction
     transaction = await db.sequelize.transaction();
     
-    // Generate task ID within the transaction
-    const taskId = await generateNextTaskId(transaction);
-
     // Get company from the authenticated user
-    const userCompany = req.user.company;
-    if (!userCompany) {
+    const userCompanyId = req.user.company.id;
+    if (!userCompanyId) {
       await transaction.rollback();
       return res.status(400).json({
         status: false,
@@ -150,53 +99,37 @@ exports.create = async (req, res) => {
       });
     }
 
-    // Check if asset system exists
-    const assetSystem = await AssetHierarchy.findOne({
+    // Get individuals and supervisor ids
+    const individual = await User.findOne({
       where: {
-        [Op.or]: [
-          { id: req.body.assetSystem },
-          { name: req.body.assetSystem }
-        ]
+        email: req.body.individual
       }
-    });
+    }, { transaction });
 
-    if (!assetSystem) {
+    if (!individual) {
       await transaction.rollback();
       return res.status(404).json({
         status: false,
-        message: "Asset system not found",
-        details: {
-          searchedValue: req.body.assetSystem,
-          availableAssets: await AssetHierarchy.findAll({
-            attributes: ['id', 'name'],
-            limit: 5
-          })
-        }
+        message: "Individual not found"
+      });
+    }
+    
+    const supervisor = await User.findOne({
+      where: {
+        email: req.body.supervisor
+      },
+    }, { transaction });
+
+    if (!supervisor) {
+      await transaction.rollback();
+      return res.status(404).json({
+        status: false,
+        message: "Supervisor not found"
       });
     }
 
-    // Create Task Hazard
-    const taskHazard = await TaskHazard.create({
-      id: taskId,
-      company: userCompany,
-      date: req.body.date,
-      time: req.body.time,
-      scopeOfWork: req.body.scopeOfWork,
-      assetSystem: req.body.assetSystem,
-      systemLockoutRequired: req.body.systemLockoutRequired || false,
-      trainedWorkforce: req.body.trainedWorkforce,
-      individual: req.body.individual,
-      supervisor: req.body.supervisor,
-      location: req.body.location,
-      status: req.body.status || 'Pending',
-      geoFenceLimit: req.body.geoFenceLimit || 200
-    }, { transaction });
-
-    // Create associated risks
-    const risks = await Promise.all(
-      req.body.risks.map(risk => 
-        TaskRisk.create({
-          taskHazardId: taskHazard.id,
+    const risks = req.body.risks.map((risk) => {
+        return ({
           riskDescription: risk.riskDescription,
           riskType: risk.riskType,
           asIsLikelihood: convertToInteger(risk.asIsLikelihood),
@@ -206,10 +139,31 @@ exports.create = async (req, res) => {
           mitigatedLikelihood: convertToInteger(risk.mitigatedLikelihood),
           mitigatedConsequence: convertToInteger(risk.mitigatedConsequence),
           requiresSupervisorSignature: risk.requiresSupervisorSignature || false
-        }, { transaction })
-      )
+        })
+      }
     );
 
+    // Create Task Hazard
+    const taskHazard = await TaskHazard.create({
+      companyId: userCompanyId,
+      date: req.body.date,
+      time: req.body.time,
+      scopeOfWork: req.body.scopeOfWork,
+      assetHierarchyId: req.body.assetSystem,
+      systemLockoutRequired: req.body.systemLockoutRequired || false,
+      trainedWorkforce: req.body.trainedWorkforce,
+      individualId: individual.id,
+      supervisorId: supervisor.id,
+      location: req.body.location,
+      status: req.body.status || 'Pending',
+      geoFenceLimit: req.body.geoFenceLimit || 200
+    }, { transaction });
+
+    // Create associated risks
+    await Promise.all(risks.map(async risk => {
+      await taskHazard.createRisk(risk, { transaction });
+    }));
+    
     // Commit transaction
     await transaction.commit();
 
@@ -231,25 +185,33 @@ exports.create = async (req, res) => {
   }
 };
 
+// A helper function to format a task hazard based on the frontend requirements
+const formatTaskHazard = (taskHazard) => {
+  return {
+    ...taskHazard.get({ plain: true }),
+    supervisor: taskHazard.supervisor.email,
+    individual: taskHazard.individual.email
+  };
+};
+
 // Retrieve all Task Hazards from the database
 exports.findAll = async (req, res) => {
   try {
     // Get company from the authenticated user
-    const userCompany = req.user.company;
-
+    const userCompanyId = req.user.company.id;
     const taskHazards = await TaskHazard.findAll({
       where: {
-        company: userCompany
-      },
-      include: [{
-        model: TaskRisk,
-        as: 'risks'
-      }]
+        companyId: userCompanyId
+      }
     });
-    
+
+    const formattedTaskHazards = taskHazards.map(taskHazard => {
+      return formatTaskHazard(taskHazard);
+    });
+
     res.status(200).json({
       status: true,
-      data: taskHazards
+      data: formattedTaskHazards
     });
   } catch (error) {
     res.status(500).json({
@@ -263,17 +225,12 @@ exports.findAll = async (req, res) => {
 exports.findOne = async (req, res) => {
   try {
     // Get company from the authenticated user
-    const userCompany = req.user.company;
-
+    const userCompanyId = req.user.company.id;
     const taskHazard = await TaskHazard.findOne({
       where: {
         id: req.params.id,
-        company: userCompany
-      },
-      include: [{
-        model: TaskRisk,
-        as: 'risks'
-      }]
+        companyId: userCompanyId
+      }
     });
 
     if (!taskHazard) {
@@ -283,9 +240,11 @@ exports.findOne = async (req, res) => {
       });
     }
 
+    const formattedTaskHazard = formatTaskHazard(taskHazard);
+
     res.status(200).json({
       status: true,
-      data: taskHazard
+      data: formattedTaskHazard
     });
   } catch (error) {
     res.status(500).json({
@@ -298,16 +257,12 @@ exports.findOne = async (req, res) => {
 // Update a Task Hazard by the id in the request
 exports.update = async (req, res) => {
   try {
-    const id = req.params.id;
-    
-    // Get company from the authenticated user
-    const userCompany = req.user.company;
-
     // Check if task hazard exists and belongs to the user's company
+    const userCompanyId = req.user.company.id;
     const taskHazard = await TaskHazard.findOne({
       where: {
-        id: id,
-        company: userCompany
+        id: req.body.id,
+        companyId: userCompanyId
       }
     });
 
@@ -318,45 +273,45 @@ exports.update = async (req, res) => {
       });
     }
 
-    // If asset system is being updated, verify it exists
-    if (req.body.assetSystem) {
-      const assetSystem = await AssetHierarchy.findOne({
-        where: {
-          [Op.or]: [
-            { id: req.body.assetSystem },
-            { name: req.body.assetSystem }
-          ]
-        }
-      });
-
-      if (!assetSystem) {
-        return res.status(404).json({
-          status: false,
-          message: "Asset system not found",
-          details: {
-            searchedValue: req.body.assetSystem,
-            availableAssets: await AssetHierarchy.findAll({
-              attributes: ['id', 'name'],
-              limit: 5
-            })
-          }
-        });
+    // Get individuals and supervisor ids
+    const individual = await User.findOne({
+      where: {
+        email: req.body.individual
       }
+    });
+
+    if (!individual) {
+      return res.status(404).json({
+        status: false,
+        message: "Individual not found"
+      });
+    }
+    
+    const supervisor = await User.findOne({
+      where: {
+        email: req.body.supervisor
+      },
+    });
+
+    if (!supervisor) {
+      return res.status(404).json({
+        status: false,
+        message: "Supervisor not found"
+      });
     }
 
-    // Start transaction'
-    console.log("req.body.risks", req.body);
+    // Start transaction
     const result = await db.sequelize.transaction(async (t) => {
       // Update Task Hazard
       await taskHazard.update({
         date: req.body.date,
         time: req.body.time,
         scopeOfWork: req.body.scopeOfWork,
-        assetSystem: req.body.assetSystem || taskHazard.assetSystem,
+        assetHierarchyId: req.body.assetSystem || taskHazard.assetHierarchyId,
         systemLockoutRequired: req.body.systemLockoutRequired,
         trainedWorkforce: req.body.trainedWorkforce,
-        individual: req.body.individual,
-        supervisor: req.body.supervisor,
+        individualId: individual.id,
+        supervisorId: supervisor.id,
         location: req.body.location,
         status: req.body.status,
         geoFenceLimit: req.body.geoFenceLimit
@@ -364,31 +319,48 @@ exports.update = async (req, res) => {
 
       // Update associated risks if provided
       if (req.body.risks && Array.isArray(req.body.risks)) {
-        // Delete existing risks
-        await TaskRisk.destroy({
-          where: { taskHazardId: id },
-          transaction: t
+        const riskMap = new Map();
+        req.body.risks.forEach(risk => {
+          riskMap.set(risk.id, risk);
         });
 
-        // Create new risks
-        const risks = await Promise.all(
-          req.body.risks.map(risk => 
-            TaskRisk.create({
-              taskHazardId: id,
-              riskDescription: risk.riskDescription,
-              riskType: risk.riskType,
-              asIsLikelihood: convertToInteger(risk.asIsLikelihood),
-              asIsConsequence: convertToInteger(risk.asIsConsequence),
-              mitigatingAction: risk.mitigatingAction,
-              mitigatingActionType: risk.mitigatingActionType,
-              mitigatedLikelihood: convertToInteger(risk.mitigatedLikelihood),
-              mitigatedConsequence: convertToInteger(risk.mitigatedConsequence),
-              requiresSupervisorSignature: risk.requiresSupervisorSignature || false
-            }, { transaction: t })
-          )
-        );
+        // Update or delete existing risks
+        await Promise.all(taskHazard.risks.map(async risk => {
+          if(riskMap.has(risk.id)){
+            const updatedRisk = riskMap.get(risk.id);
+            await risk.update({
+              riskDescription: updatedRisk.riskDescription,
+              riskType: updatedRisk.riskType,
+              asIsLikelihood: convertToInteger(updatedRisk.asIsLikelihood),
+              asIsConsequence: convertToInteger(updatedRisk.asIsConsequence),
+              mitigatingAction: updatedRisk.mitigatingAction,
+              mitigatingActionType: updatedRisk.mitigatingActionType,
+              mitigatedLikelihood: convertToInteger(updatedRisk.mitigatedLikelihood),
+              mitigatedConsequence: convertToInteger(updatedRisk.mitigatedConsequence),
+              requiresSupervisorSignature: updatedRisk.requiresSupervisorSignature || risk.requiresSupervisorSignature
+            }, { transaction: t });
+            riskMap.delete(risk.id);
+          } else {
+            await risk.destroy({ transaction: t });
+          }
+        }));
 
-        return { taskHazard, risks };
+        // Create new risks - Fixed: use map instead of forEach
+        await Promise.all(Array.from(riskMap.values()).map(async risk => {
+          await taskHazard.createRisk({
+            riskDescription: risk.riskDescription,
+            riskType: risk.riskType,
+            asIsLikelihood: convertToInteger(risk.asIsLikelihood),
+            asIsConsequence: convertToInteger(risk.asIsConsequence),
+            mitigatingAction: risk.mitigatingAction,
+            mitigatingActionType: risk.mitigatingActionType,
+            mitigatedLikelihood: convertToInteger(risk.mitigatedLikelihood),
+            mitigatedConsequence: convertToInteger(risk.mitigatedConsequence),
+            requiresSupervisorSignature: risk.requiresSupervisorSignature || false
+          }, { transaction: t });
+        }));
+
+        return { taskHazard, risks: req.body.risks };
       }
 
       return { taskHazard };
@@ -401,6 +373,7 @@ exports.update = async (req, res) => {
     });
 
   } catch (error) {
+    console.error('Error updating task hazard:', error);
     res.status(500).json({
       status: false,
       message: error.message || "Some error occurred while updating the Task Hazard."
@@ -411,16 +384,15 @@ exports.update = async (req, res) => {
 // Delete a Task Hazard with the specified id in the request
 exports.delete = async (req, res) => {
   try {
-    const id = req.params.id;
-    
     // Get company from the authenticated user
-    const userCompany = req.user.company;
+    const userCompanyId = req.user.company.id;
+    const id = req.params.id;
     
     // Check if task hazard exists and belongs to the user's company
     const taskHazard = await TaskHazard.findOne({
       where: {
         id: id,
-        company: userCompany
+        companyId: userCompanyId
       }
     });
 

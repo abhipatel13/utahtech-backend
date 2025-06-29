@@ -4,13 +4,16 @@ class TaskHazard extends Sequelize.Model {
   static init(sequelize, DataTypes) {
     return super.init({
       id: {
-        type: DataTypes.STRING,
+        type: DataTypes.INTEGER,
         primaryKey: true,
-        allowNull: false
+        allowNull: false,
+        autoIncrement: true,
+        field: 'id'
       },
-      company_id: {
+      companyId: {
         type: DataTypes.INTEGER,
         allowNull: false,
+        field: 'company_id',
         references: {
           model: 'company',
           key: 'id'
@@ -18,52 +21,63 @@ class TaskHazard extends Sequelize.Model {
       },
       date: {
         type: DataTypes.DATEONLY,
-        allowNull: false
+        allowNull: false,
+        field: 'date'
       },
       time: {
         type: DataTypes.TIME,
-        allowNull: false
+        allowNull: false,
+        field: 'time'
       },
-      scope_of_work: {
+      scopeOfWork: {
         type: DataTypes.TEXT,
-        allowNull: false
+        allowNull: false,
+        field: 'scope_of_work'
       },
-      asset_hierarchy_id: {
+      assetHierarchyId: {
         type: DataTypes.STRING,
         allowNull: true,
+        field: 'asset_hierarchy_id',
         references: {
           model: 'asset_hierarchy',
           key: 'id'
         }
       },
-      system_lockout_required: {
+      systemLockoutRequired: {
         type: DataTypes.BOOLEAN,
-        defaultValue: false
+        defaultValue: false,
+        field: 'system_lockout_required'
       },
-      trained_workforce: {
+      trainedWorkforce: {
         type: DataTypes.STRING,
-        allowNull: false
+        allowNull: false,
+        field: 'trained_workforce'
       },
-      individual: {
-        type: DataTypes.STRING,
-        allowNull: false
+      individualId: {
+        type: DataTypes.INTEGER,
+        allowNull: false,
+        field: 'individual_id'
       },
-      supervisor: {
-        type: DataTypes.STRING,
-        allowNull: false
+      supervisorId: {
+        type: DataTypes.INTEGER,
+        allowNull: false,
+        field: 'supervisor_id'
       },
       location: {
         type: DataTypes.STRING,
-        allowNull: false
+        allowNull: false,
+        field: 'location'
       },
       status: {
         type: DataTypes.ENUM('Active', 'Inactive', 'Completed', 'Pending', 'Rejected'),
-        defaultValue: 'Pending'
+        defaultValue: 'Pending',
+        field: 'status'
       },
-      geofence_limit: {
+      geofenceLimit: {
         type: DataTypes.INTEGER,
         allowNull: false,
-        defaultValue: 200
+        defaultValue: 200,
+        field: 'geofence_limit'
       }
     }, {
       sequelize,
@@ -76,19 +90,54 @@ class TaskHazard extends Sequelize.Model {
   }
 
   static associate(models) {
-    TaskHazard.belongsTo(models.asset_hierarchy, {
-      foreignKey: 'asset_hierarchy_id',
+    this.belongsTo(models.asset_hierarchy, {
+      foreignKey: 'assetHierarchyId',
       as: 'asset'
     });
 
-    TaskHazard.belongsTo(models.company, {  
-      foreignKey: "company_id",
+    this.belongsTo(models.company, {  
+      foreignKey: "companyId",
       as: 'company'
     });
 
-    TaskHazard.hasMany(models.task_risks,{ 
-      foreignKey: 'taskHazard_id', 
+    this.hasMany(models.task_risks,{ 
+      foreignKey: 'taskHazardId', 
       as: 'risks' 
+    });
+
+    this.belongsTo(models.user, {
+      foreignKey: 'supervisorId',
+      as: 'supervisor'
+    });
+
+    this.belongsTo(models.user, {
+      foreignKey: 'individualId',
+      as: 'individual'
+    });
+  };
+
+  static scopes(models) {
+    this.addScope('defaultScope', {
+      include: [
+        { model: models.company, 
+          as: 'company', 
+          attributes: ['id', 'name'] },
+        { model: models.task_risks, as: 'risks' },
+        { model: models.user, as: 'supervisor' },
+        { model: models.user, as: 'individual' },
+      ],
+      attributes: [
+        'id', 
+        'date', 
+        'time', 
+        'scopeOfWork', 
+        ['asset_hierarchy_id', 'assetSystem'], 
+        'systemLockoutRequired', 
+        'trainedWorkforce', 
+        'location', 
+        'status', 
+        'geofenceLimit'
+      ],
     });
   }
 }
