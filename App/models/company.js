@@ -30,6 +30,11 @@ class Company extends Sequelize.Model {
       as: 'assets'
     });
 
+    this.hasMany(models.file_uploads, { 
+      foreignKey: 'companyId',
+      as: 'fileUploads'
+    });
+
     this.hasMany(models.tactics, { 
       foreignKey: 'company_id',
       as: 'tactics'

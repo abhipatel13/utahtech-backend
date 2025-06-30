@@ -28,7 +28,15 @@ class FileUpload extends Sequelize.Model {
         type: DataTypes.ENUM('uploading', 'completed', 'error'),
         defaultValue: 'uploading'
       },
-      uploader_id: {
+      companyId: {
+        type: DataTypes.INTEGER,
+        allowNull: false,
+        references: {
+          model: 'company',
+          key: 'id'
+        }
+      },
+      uploaderId: {
         type: DataTypes.INTEGER,
         allowNull: false,
         references: {
@@ -47,8 +55,13 @@ class FileUpload extends Sequelize.Model {
   }
 
   static associate(models) {
+    this.belongsTo(models.company, { 
+      foreignKey: "companyId",
+      as: 'company'
+    });
+    
     this.belongsTo(models.user, { 
-      foreignKey: "uploader_id",
+      foreignKey: "uploaderId",
       as: 'uploadedBy'
     });
   }
