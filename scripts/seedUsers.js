@@ -13,40 +13,34 @@ const dbConfig = {
 // Test users with different roles
 const users = [
   {
-    email: 'superuser1@utahtechnicalservicesllc.com',
+    email: 'hello1@utahtechnicalservicesllc.com',
     password: 'superuser123',
-    role: 'superuser',
-    company_id: 3  
+    role: 'superuser'
   },
   {
     email: 'superuser@utahtechnicalservicesllc.com',
     password: 'superuser123',
-    role: 'superuser',
-    company_id: 2
+    role: 'superuser'
   },
   {
     email: 'admin@utahtechnicalservicesllc.com',
     password: 'admin123',
-    role: 'admin',
-    company_id: 2
+    role: 'admin'
   },
   {
     email: 'supervisor@utahtechnicalservicesllc.com',
     password: 'supervisor123',
-    role: 'supervisor',
-    company_id: 2
+    role: 'supervisor'
   },
   {
     email: 'user@utahtechnicalservicesllc.com',
     password: 'user123',
-    role: 'user',
-      company_id: 2
+    role: 'user'
   },
   {
     email: 'newsuperuser@utahtechnicalservicesllc.com',
     password: 'newsuperuser123',
-    role: 'superuser',
-    company_id: 2
+    role: 'superuser'
   }
 ];
 
@@ -56,6 +50,41 @@ const seedUsers = async () => {
   try {
     // Create connection to MySQL
     connection = await mysql.createConnection(dbConfig);
+
+    // Check if company table exists, create if it doesn't
+    const [companyTables] = await connection.execute('SHOW TABLES LIKE "company"');
+    if (companyTables.length === 0) {
+      console.log('Company table does not exist. Creating it...');
+      await connection.execute(`
+        CREATE TABLE company (
+          id INT AUTO_INCREMENT PRIMARY KEY,
+          name VARCHAR(150) NOT NULL,
+          created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+          updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP,
+          deleted_at TIMESTAMP NULL
+        )
+      `);
+      console.log('Company table created');
+    }
+
+    // Check if Utah Technical Services company exists, create if it doesn't
+    const [existingCompany] = await connection.execute(
+      'SELECT id FROM company WHERE name = ?',
+      ['Utah Technical Services LLC']
+    );
+
+    let companyId;
+    if (existingCompany.length === 0) {
+      const [companyResult] = await connection.execute(
+        'INSERT INTO company (name) VALUES (?)',
+        ['Utah Technical Services LLC']
+      );
+      companyId = companyResult.insertId;
+      console.log('Created company: Utah Technical Services LLC with ID:', companyId);
+    } else {
+      companyId = existingCompany[0].id;
+      console.log('Company Utah Technical Services LLC already exists with ID:', companyId);
+    }
 
     // Check if users table exists
     const [tables] = await connection.execute('SHOW TABLES LIKE "users"');
@@ -68,7 +97,11 @@ const seedUsers = async () => {
           email VARCHAR(255) NOT NULL UNIQUE,
           password VARCHAR(255) NOT NULL,
           role VARCHAR(50) NOT NULL,
-          company VARCHAR(255)
+          company_id INT NOT NULL,
+          created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+          updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP,
+          deleted_at TIMESTAMP NULL,
+          FOREIGN KEY (company_id) REFERENCES company(id)
         )
       `);
       console.log('Users table created');
@@ -92,10 +125,10 @@ const seedUsers = async () => {
         // Insert user
         await connection.execute(
           'INSERT INTO users (email, password, role, company_id) VALUES (?, ?, ?, ?)',
-          [userData.email, hashedPassword, userData.role, userData.company_id]
+          [userData.email, hashedPassword, userData.role, companyId]
         );
         
-        console.log(`Created user: ${userData.email} with role: ${userData.role} and company: ${userData.company}`);
+        console.log(`Created user: ${userData.email} with role: ${userData.role} and company_id: ${companyId}`);
       } else {
         console.log(`User ${userData.email} already exists, skipping...`);
       }

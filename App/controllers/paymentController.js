@@ -1,6 +1,6 @@
 const models = require('../models');
 const Payment = models.payments;
-const User = models.users;
+const User = models.user;
 const { v4: uuidv4 } = require('uuid');
 const notificationController = require('./notificationController');
 const stripeService = require('../services/stripeService');
@@ -110,6 +110,7 @@ exports.processPayment = async (req, res) => {
 
 exports.getAllPayments = async (req, res) => {
   try {
+    
     const payments = await Payment.findAll({
       include: [
         {
@@ -126,11 +127,14 @@ exports.getAllPayments = async (req, res) => {
       order: [['createdAt', 'DESC']]
     });
 
+    console.log("Found payments:", payments.length);
+
     return res.status(200).json({
       status: true,
       data: payments
     });
   } catch (error) {
+    console.error('Payment controller error:', error);
     return res.status(500).json({
       status: false,
       message: 'Error fetching payments',
@@ -232,7 +236,7 @@ exports.getAllUsersSubscriptionStatus = async (req, res) => {
     }
 
     const users = await User.findAll({
-      attributes: ['id', 'name', 'email', 'user_type'],
+      attributes: ['id', 'name', 'email', 'role'],
       include: [{
         model: Payment,
         as: 'payments',

@@ -50,9 +50,16 @@ router.post('/login', async (req, res) => {
     
     // Find user by email
     const db = require('../models');
+
+    console.log(email);
+    console.log(password);
+    console.log(company);
+
     const user = await db.sequelize.models.user.scope('auth').findOne({
       where: { email:email }
     });
+
+    console.log(user);
 
     if (!user) {
       return res.status(401).json({

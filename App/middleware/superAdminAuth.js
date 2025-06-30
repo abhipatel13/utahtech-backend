@@ -1,6 +1,9 @@
 const isSuperAdmin = (req, res, next) => {
   try {
     // Check if user exists in request (set by previous auth middleware)
+    console.log("SuperAdmin", req.user);
+    console.log("SuperAdmin", req.user.role);
+    console.log("SuperAdmin", req.user.role !== 'superuser');
     if (!req.user) {
       return res.status(401).json({
         status: false,
