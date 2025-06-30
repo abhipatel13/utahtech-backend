@@ -28,7 +28,7 @@ const users = [
     role: 'admin'
   },
   {
-    email: 'supervisor@utahtechnicalservicesllc.com',
+    email: 'supervisor@utahtechnicalservicesll.com',
     password: 'supervisor123',
     role: 'supervisor'
   },
