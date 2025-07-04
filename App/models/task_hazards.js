@@ -53,11 +53,6 @@ class TaskHazard extends Sequelize.Model {
         allowNull: false,
         field: 'trained_workforce'
       },
-      individualId: {
-        type: DataTypes.INTEGER,
-        allowNull: false,
-        field: 'individual_id'
-      },
       supervisorId: {
         type: DataTypes.INTEGER,
         allowNull: false,
@@ -110,9 +105,12 @@ class TaskHazard extends Sequelize.Model {
       as: 'supervisor'
     });
 
-    this.belongsTo(models.user, {
-      foreignKey: 'individualId',
-      as: 'individual'
+    // Many-to-many relationship with users for multiple individuals
+    this.belongsToMany(models.user, {
+      through: models.task_hazard_individuals,
+      foreignKey: 'taskHazardId',
+      otherKey: 'userId',
+      as: 'individuals'
     });
   };
 
@@ -124,7 +122,7 @@ class TaskHazard extends Sequelize.Model {
           attributes: ['id', 'name'] },
         { model: models.task_risks, as: 'risks' },
         { model: models.user, as: 'supervisor' },
-        { model: models.user, as: 'individual' },
+        { model: models.user, as: 'individuals', attributes: ['id', 'email', 'name'] },
       ],
       attributes: [
         'id', 

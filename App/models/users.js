@@ -100,7 +100,14 @@ class Users extends Sequelize.Model {
       as: 'company'
     });
     this.hasMany(models.task_hazards, { foreignKey: 'supervisorId' });
-    this.hasMany(models.task_hazards, { foreignKey: 'individualId' });
+    
+    // Many-to-many relationship with task hazards for multiple individuals
+    this.belongsToMany(models.task_hazards, {
+      through: models.task_hazard_individuals,
+      foreignKey: 'userId',
+      otherKey: 'taskHazardId',
+      as: 'assignedTaskHazards'
+    });
   };
 
   static scopes(models) {
