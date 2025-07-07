@@ -121,8 +121,8 @@ class TaskHazard extends Sequelize.Model {
           as: 'company', 
           attributes: ['id', 'name'] },
         { model: models.task_risks, as: 'risks' },
-        { model: models.user, as: 'supervisor' },
-        { model: models.user, as: 'individuals', attributes: ['id', 'email', 'name'] },
+        { model: models.user, as: 'supervisor', attributes: ["id", "email", "name", "role"] },
+        { model: models.user, as: 'individuals', attributes: ["id", "email", "name", "role"] },
       ],
       attributes: [
         'id', 

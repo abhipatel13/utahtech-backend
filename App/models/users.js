@@ -113,8 +113,12 @@ class Users extends Sequelize.Model {
   static scopes(models) {
     // Password is excluded by default, but can be included by using the 'auth' scope
     this.addScope('defaultScope', {
+      attributes: ["id", "email", "name", "role", "company_id"],
       exclude: ['password'],
-      include: [{ model: models.company, as: 'company' }]
+      include: [{ model: models.company, as: 'company', attributes: ["id", "name"]}]
+    });
+    this.addScope('basic', {
+      attributes: ["id", "email", "name", "role"],
     });
     this.addScope('auth', {
         include: [{ model: models.company, as: 'company' }]
