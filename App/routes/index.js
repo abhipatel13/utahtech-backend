@@ -17,5 +17,6 @@ router.use('/asset-hierarchy', assetHierarchyRoutes);
 router.use('/users', userRoutes);
 router.use('/tactics', tacticRoutes);
 router.use('/payments', paymentRoutes);
+router.use('/licenses', require('./license.routes'));
 
 module.exports = router;

@@ -21,4 +21,9 @@ router.get('/users/subscription-status', isSuperAdmin, paymentController.getAllU
 router.get('/user/:userId', auth, paymentController.getUserPayments);
 router.get('/status/:userId', auth, paymentController.checkPaymentStatus);
 
+// Bulk license purchase routes (SuperAdmin only)
+router.get('/bulk/pricing', isSuperAdmin, paymentController.getBulkLicensePricing);
+router.get('/bulk/calculate', isSuperAdmin, paymentController.calculateBulkLicensePricing);
+router.post('/bulk/payment-intent', isSuperAdmin, paymentController.createBulkLicensePaymentIntent);
+
 module.exports = router; 
