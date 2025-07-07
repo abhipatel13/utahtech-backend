@@ -94,7 +94,7 @@ class Users extends Sequelize.Model {
       foreignKey: 'supervisor_id',
       as: 'supervisor'
     });
-    this.paymentsAssociation = models.user.hasMany(models.payments, {foreignKey: 'userId', as: 'payments'});
+    // Payment association removed - payment management functionality deprecated
     this.companyAssociation = models.user.belongsTo(models.company, {
       foreignKey: 'company_id',
       as: 'company'

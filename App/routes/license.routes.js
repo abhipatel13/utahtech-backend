@@ -4,7 +4,7 @@ const { auth } = require('../middleware/auth');
 const { isSuperAdmin } = require('../middleware/superAdminAuth');
 const { checkRole } = require('../middleware/auth');
 const licenseController = require('../controllers/licenseController');
-const paymentController = require('../controllers/paymentController');
+
 
 // Apply authentication middleware to all routes
 router.use(auth);
@@ -42,14 +42,15 @@ router.put('/allocations/:allocationId/extend', checkRole(['superuser', 'admin']
 
 // =================== BULK LICENSE PURCHASE ROUTES ===================
 
+// TODO: Implement bulk license pricing and payment methods in licenseController
 // Get bulk license pricing tiers - SuperAdmin only
-router.get('/bulk/pricing', isSuperAdmin, paymentController.getBulkLicensePricing);
+// router.get('/bulk/pricing', isSuperAdmin, licenseController.getBulkLicensePricing);
 
-// Calculate bulk license pricing - SuperAdmin only
-router.get('/bulk/calculate', isSuperAdmin, paymentController.calculateBulkLicensePricing);
+// Calculate bulk license pricing - SuperAdmin only  
+// router.get('/bulk/calculate', isSuperAdmin, licenseController.calculateBulkLicensePricing);
 
 // Create payment intent for bulk license purchase - SuperAdmin only
-router.post('/bulk/payment-intent', isSuperAdmin, paymentController.createBulkLicensePaymentIntent);
+// router.post('/bulk/payment-intent', isSuperAdmin, licenseController.createBulkLicensePaymentIntent);
 
 // Update payment routes to include bulk license endpoints
 router.post('/bulk/process', isSuperAdmin, async (req, res) => {

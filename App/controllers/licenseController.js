@@ -3,10 +3,8 @@ const LicensePool = models.license_pools;
 const LicenseAllocation = models.license_allocations;
 const User = models.user;
 const Company = models.company;
-const Payment = models.payments;
 const { v4: uuidv4 } = require('uuid');
 const notificationController = require('./notificationController');
-const stripeService = require('../services/stripeService');
 
 // =================== LICENSE POOL MANAGEMENT ===================
 
@@ -44,30 +42,8 @@ exports.createLicensePool = async (req, res) => {
       });
     }
 
-    // If payment method is stripe, verify the payment intent
+    // TODO: Implement payment verification when payment system is ready
     let paymentId = null;
-    if (stripePaymentIntentId) {
-      const paymentIntent = await stripeService.retrievePaymentIntent(stripePaymentIntentId);
-      if (paymentIntent.status !== 'succeeded') {
-        return res.status(400).json({
-          status: false,
-          message: 'Payment has not been completed'
-        });
-      }
-
-      // Create payment record for bulk purchase
-      const payment = await Payment.create({
-        userId: req.user.id,
-        amount: totalAmount,
-        paymentMethod: 'stripe',
-        validUntil: poolExpiryDate || null,
-        status: 'completed',
-        transactionId: stripePaymentIntentId,
-        processedBy: req.user.id
-      }, { transaction: t });
-
-      paymentId = payment.id;
-    }
 
     // Create license pool
     const licensePool = await LicensePool.create({
@@ -200,11 +176,6 @@ exports.getLicensePoolById = async (req, res) => {
               attributes: ['id', 'name', 'email']
             }
           ]
-        },
-        {
-          model: Payment,
-          as: 'payment',
-          attributes: ['id', 'amount', 'paymentMethod', 'transactionId']
         }
       ]
     });

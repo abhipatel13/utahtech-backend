@@ -88,15 +88,7 @@ class LicensePool extends Sequelize.Model {
         allowNull: true,
         comment: 'Additional notes about the license pool'
       },
-      paymentId: {
-        type: DataTypes.INTEGER,
-        allowNull: true,
-        references: {
-          model: 'payments',
-          key: 'id'
-        },
-        comment: 'Reference to the payment record for this bulk purchase'
-      },
+      // paymentId removed - payment management functionality deprecated
       createdAt: {
         field: 'created_at',
         type: DataTypes.DATE,
@@ -151,11 +143,7 @@ class LicensePool extends Sequelize.Model {
       as: 'allocations' 
     });
     
-    // License pool belongs to a payment
-    this.belongsTo(models.payments, { 
-      foreignKey: 'paymentId', 
-      as: 'payment' 
-    });
+    // Payment association removed - payment management functionality deprecated
   }
 
   // Instance methods
