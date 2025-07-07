@@ -410,6 +410,23 @@ exports.update = async (req, res) => {
     // Validate user company access
     const userCompanyId = getUserCompanyId(req);
 
+    const user = await User.findOne({
+      where: {
+        id: req.user.id
+      }
+    });
+    if(!user || !user?.role){
+      return res.status(403).json(createErrorResponse("Submitting user not found"));
+    }
+
+    // When a regular user makes changes to a task hazard that required a supervisor signature, the task hazard will be set back to pending
+    // as reapproval is required. Except when changing the status to completed.
+    const requiresSignature = req.body.risks.some(risk => risk.requiresSupervisorSignature);
+    let status = req.body.status;
+    if(requiresSignature && user.role === "user" && req.body.status !== "Completed"){
+      status = determineTaskHazardStatus(req.body.risks, status);
+    }
+
     // Find task hazard with company validation (before starting transaction)
     const taskHazard = await findTaskHazardByIdAndCompany(req.body.id, userCompanyId);
 
@@ -434,7 +451,7 @@ exports.update = async (req, res) => {
         trainedWorkforce: req.body.trainedWorkforce,
         supervisorId: supervisor.id,
         location: req.body.location,
-        status: req.body.status,
+        status: status,
         geoFenceLimit: req.body.geoFenceLimit
       }, { transaction });
 

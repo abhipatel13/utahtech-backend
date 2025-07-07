@@ -134,9 +134,12 @@ class TaskHazard extends Sequelize.Model {
         'trainedWorkforce', 
         'location', 
         'status', 
-        'geofenceLimit'
+        'geofenceLimit',
+        'createdAt'
       ],
+      order: [['createdAt', 'DESC']],
     });
+
   }
 }
 
