@@ -1,6 +1,6 @@
 const models = require('../models');
 const Notification = models.notifications;
-const User = models.users;
+const User = models.user;
 
 // Create notification
 exports.createNotification = async (userId, title, message, type = 'system') => {
@@ -23,13 +23,8 @@ exports.getUserNotifications = async (req, res) => {
     const userId = req.user.id;
     
     const notifications = await Notification.findAll({
-      where: { userId },
-      order: [['createdAt', 'DESC']],
-      include: [{
-        model: User,
-        as: 'user',
-        attributes: ['id', 'name', 'email']
-      }]
+      where: { user_id: userId },
+      order: [['createdAt', 'DESC']]
     });
 
     return res.status(200).json({
@@ -54,7 +49,7 @@ exports.markAsRead = async (req, res) => {
     const notification = await Notification.findOne({
       where: { 
         id: notificationId,
-        userId
+        user_id: userId
       }
     });
 
