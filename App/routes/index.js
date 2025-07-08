@@ -7,6 +7,7 @@ const userRoutes = require('./user');
 const taskHazardRoutes = require('./task_hazard.routes');
 const assetHierarchyRoutes = require('./asset_hierarchy.routes');
 const tacticRoutes = require('./tacticRoutes');
+const riskAssessmentRoutes = require('./risk_assessment.routes');
 
 
 router.use('/auth', authRoutes);
@@ -16,6 +17,7 @@ router.use('/task-hazards', taskHazardRoutes);
 router.use('/asset-hierarchy', assetHierarchyRoutes);
 router.use('/users', userRoutes);
 router.use('/tactics', tacticRoutes);
+router.use('/risk-assessments', riskAssessmentRoutes);
 
 
 module.exports = router;

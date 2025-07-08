@@ -108,6 +108,14 @@ class Users extends Sequelize.Model {
       otherKey: 'taskHazardId',
       as: 'assignedTaskHazards'
     });
+    
+    // Many-to-many relationship with risk assessments for multiple individuals
+    this.belongsToMany(models.risk_assessments, {
+      through: models.risk_assessment_individuals,
+      foreignKey: 'userId',
+      otherKey: 'riskAssessmentId',
+      as: 'assignedRiskAssessments'
+    });
   };
 
   static scopes(models) {
