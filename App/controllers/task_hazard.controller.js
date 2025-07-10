@@ -2,6 +2,7 @@ const db = require("../models");
 const TaskHazard = db.task_hazards;
 const TaskRisk = db.task_risks;
 const User = db.user;
+const Notification = db.notifications;
 
 /**
  * Helper function to convert likelihood and consequence strings to integers
@@ -258,7 +259,6 @@ const updateTaskHazardRisks = async (taskHazard, newRisks, transaction) => {
  * Handles all individuals through the junction table (many-to-many relationship)
  */
 exports.create = async (req, res) => {
-  console.log("STARTED: Task Hazard creation");
   let transaction;
   
   try {
@@ -317,6 +317,16 @@ exports.create = async (req, res) => {
     await Promise.all(processedRisks.map(async risk => {
       await taskHazard.createRisk(risk, { transaction });
     }));
+    
+    const requiresSignature = req.body.risks.some(risk => risk.requiresSupervisorSignature);
+    if(requiresSignature && status === "Pending"){
+      const notification = await Notification.create({
+        userId: supervisor.id,
+        title: "Task Hazard Pending",
+        message: "A task hazard requires your approval. Please review the risks and take appropriate actions.",
+        type: "approval"
+      }, { transaction });
+    }
     
     // Commit transaction
     await transaction.commit();
@@ -464,6 +474,15 @@ exports.update = async (req, res) => {
         updatedRisks = await updateTaskHazardRisks(taskHazard, req.body.risks, transaction);
       }
 
+      if(requiresSignature && status === "Pending"){
+        const notification = await Notification.create({
+          userId: supervisor.id,
+          title: "Task Hazard Pending",
+          message: "A task hazard requires your approval. Please review the risks and take appropriate actions.",
+          type: "approval"
+        }, { transaction });
+      }
+
       return { taskHazard, risks: updatedRisks };
     });
 
@@ -484,6 +503,56 @@ exports.update = async (req, res) => {
     ));
   }
 };
+
+/**
+ * Supervisor approval of a task hazard
+ * Updates the task hazard status to the requested status
+ * Creates a notification for each individual in the task hazard
+ */
+exports.supervisorApproval = async (req, res) => {
+  try {
+    // Validate user company access
+    const userCompanyId = getUserCompanyId(req);
+    const user = await User.findOne({
+      where: {
+        id: req.user.id
+      }
+    });
+
+    if(!user || !user?.role || !(user.role === "supervisor" || user.role === "admin" || user.role === "superuser")){
+      return res.status(403).json(createErrorResponse("Access denied. Supervisor privileges required to approve task hazards."));
+    }
+
+    const taskHazard = await findTaskHazardByIdAndCompany(req.body.id, userCompanyId);
+    if(taskHazard.status !== "Pending"){
+      return res.status(400).json(createErrorResponse("Task hazard is not pending approval."));
+    }
+
+    const transaction = await db.sequelize.transaction();
+
+    const updatedTaskHazard = await taskHazard.update({
+      status: req.body.status
+    }, { transaction });
+
+    await Promise.all(updatedTaskHazard.individuals.map(async individual => {
+      await Notification.create({
+        userId: individual.id,
+        title: "Task Hazard Updated",
+        message: "The status of a task hazard you are apart of has been updated.",
+        type: "hazard"
+      }, { transaction });
+    }));
+    await transaction.commit();
+
+    res.status(200).json(createSuccessResponse("Task hazard status updated successfully", updatedTaskHazard));
+
+  } catch (error) {
+    console.error('Error updating task hazard:', error);
+    res.status(500).json(createErrorResponse(
+      error.message || "Some error occurred while updating the Task Hazard."
+    ));
+  }
+}
 
 /**
  * Delete a Task Hazard with the specified ID
