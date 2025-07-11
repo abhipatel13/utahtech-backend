@@ -11,6 +11,9 @@ router.use(ensureCompanyAccess('task_hazards'));
 // Create a new Task Hazard
 router.post("/", task_hazards.create);
 
+
+router.put("/approval/:id", task_hazards.supervisorApproval);
+
 // Retrieve all Task Hazards
 router.get("/", task_hazards.findAll);
 

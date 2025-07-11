@@ -1,10 +1,9 @@
 const models = require('../models');
 const Notification = models.notifications;
-const User = models.users;
-const Payment = models.payments;
+const User = models.user;
 
 // Create notification
-exports.createNotification = async (userId, title, message, type = 'payment') => {
+exports.createNotification = async (userId, title, message, type = 'system') => {
   try {
     return await Notification.create({
       userId,
@@ -24,13 +23,8 @@ exports.getUserNotifications = async (req, res) => {
     const userId = req.user.id;
     
     const notifications = await Notification.findAll({
-      where: { userId },
-      order: [['createdAt', 'DESC']],
-      include: [{
-        model: User,
-        as: 'user',
-        attributes: ['id', 'name', 'email']
-      }]
+      where: { user_id: userId },
+      order: [['createdAt', 'DESC']]
     });
 
     return res.status(200).json({
@@ -55,7 +49,7 @@ exports.markAsRead = async (req, res) => {
     const notification = await Notification.findOne({
       where: { 
         id: notificationId,
-        userId
+        user_id: userId
       }
     });
 
@@ -81,53 +75,4 @@ exports.markAsRead = async (req, res) => {
   }
 };
 
-// Check payment status and create notifications
-exports.checkPaymentStatusAndNotify = async () => {
-  try {
-    const users = await User.findAll({
-      include: [{
-        model: Payment,
-        as: 'payments',
-        attributes: ['validUntil', 'status'],
-        where: { status: 'completed' },
-        order: [['validUntil', 'DESC']],
-        limit: 1,
-        required: false
-      }]
-    });
-
-    for (const user of users) {
-      const latestPayment = user.payments?.[0];
-      const hasActiveSubscription = latestPayment && new Date(latestPayment.validUntil) > new Date();
-
-      if (!hasActiveSubscription) {
-        // Notify the user
-        await exports.createNotification(
-          user.id,
-          'Payment Required',
-          'Your subscription has expired. Please process the payment to continue using the services.',
-          'payment'
-        );
-
-        // Notify admins and superadmins
-        const admins = await User.findAll({
-          where: {
-            user_type: ['admin', 'superadmin']
-          }
-        });
-
-        for (const admin of admins) {
-          await exports.createNotification(
-            admin.id,
-            'User Payment Status',
-            `User ${user.name} (${user.email}) has an expired subscription.`,
-            'payment'
-          );
-        }
-      }
-    }
-  } catch (error) {
-    console.error('Error checking payment status and creating notifications:', error);
-    throw error;
-  }
-}; 
+// TODO: Add license expiration checking functionality 

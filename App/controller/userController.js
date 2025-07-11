@@ -75,6 +75,28 @@ module.exports.getAllUser = async (req, res) => {
   }
 };
 
+module.exports.getAllUserRestricted = async (req, res) => {
+  try {
+    console.log("getAllUserRestricted");
+    
+    const result = await User.scope('basic').findAll({
+      where: {
+        company_id: req.user.company_id ,
+      }
+    });
+
+    if (result.length) {
+      return res.status(200).send({ status: 200, data: result });
+    } else {
+      return res.status(404).send({ status: 404, message: "No users found" });
+    }
+  } catch (err) {
+    console.error("Error in getAllUser:", err);
+    return res.status(500).send({ status: 500, message: "Internal server error", error: err.message });
+  }
+};
+
+
 module.exports.updateUser = async (req, res) => {
   try {
     if (req.body && req.params.id) {

@@ -18,29 +18,19 @@ const users = [
     role: 'superuser'
   },
   {
-    email: 'superuser@utahtechnicalservicesllc.com',
+    email: 'hello2@utahtechnicalservicesllc.com',
     password: 'superuser123',
-    role: 'superuser'
-  },
-  {
-    email: 'admin@utahtechnicalservicesllc.com',
-    password: 'admin123',
     role: 'admin'
   },
   {
-    email: 'supervisor@utahtechnicalservicesll.com',
-    password: 'supervisor123',
+    email: 'hello3@utahtechnicalservicesllc.com',
+    password: 'superuser123',
     role: 'supervisor'
   },
   {
-    email: 'user@utahtechnicalservicesllc.com',
-    password: 'user123',
+    email: 'hello4@utahtechnicalservicesllc.com',
+    password: 'admin123',
     role: 'user'
-  },
-  {
-    email: 'newsuperuser@utahtechnicalservicesllc.com',
-    password: 'newsuperuser123',
-    role: 'superuser'
   }
 ];
 

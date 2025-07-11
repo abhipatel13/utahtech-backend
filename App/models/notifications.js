@@ -13,7 +13,7 @@ class Notification extends Sequelize.Model {
         type: DataTypes.INTEGER,
         allowNull: false,
         references: {
-          model: 'users',
+          model: 'user',
           key: 'id'
         }
       },
@@ -26,8 +26,8 @@ class Notification extends Sequelize.Model {
         allowNull: false
       },
       type: {
-        type: DataTypes.ENUM('payment', 'system', 'other'),
-        defaultValue: 'payment'
+        type: DataTypes.ENUM('license', 'payment', 'system', 'risk', 'hazard', 'approval', 'other'),
+        defaultValue: 'system'
       },
       isRead: {
         type: DataTypes.BOOLEAN,

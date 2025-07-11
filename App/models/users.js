@@ -94,7 +94,7 @@ class Users extends Sequelize.Model {
       foreignKey: 'supervisor_id',
       as: 'supervisor'
     });
-    this.paymentsAssociation = models.user.hasMany(models.payments, {foreignKey: 'userId', as: 'payments'});
+    // Payment association removed - payment management functionality deprecated
     this.companyAssociation = models.user.belongsTo(models.company, {
       foreignKey: 'company_id',
       as: 'company'
@@ -108,13 +108,25 @@ class Users extends Sequelize.Model {
       otherKey: 'taskHazardId',
       as: 'assignedTaskHazards'
     });
+    
+    // Many-to-many relationship with risk assessments for multiple individuals
+    this.belongsToMany(models.risk_assessments, {
+      through: models.risk_assessment_individuals,
+      foreignKey: 'userId',
+      otherKey: 'riskAssessmentId',
+      as: 'assignedRiskAssessments'
+    });
   };
 
   static scopes(models) {
     // Password is excluded by default, but can be included by using the 'auth' scope
     this.addScope('defaultScope', {
+      attributes: ["id", "email", "name", "role", "company_id"],
       exclude: ['password'],
-      include: [{ model: models.company, as: 'company' }]
+      include: [{ model: models.company, as: 'company', attributes: ["id", "name"]}]
+    });
+    this.addScope('basic', {
+      attributes: ["id", "email", "name", "role"],
     });
     this.addScope('auth', {
         include: [{ model: models.company, as: 'company' }]

@@ -1,6 +1,6 @@
 const { Sequelize } = require('sequelize');
 
-class TaskHazard extends Sequelize.Model {
+class RiskAssessment extends Sequelize.Model {
   static init(sequelize, DataTypes) {
     return super.init({
       id: {
@@ -49,7 +49,7 @@ class TaskHazard extends Sequelize.Model {
         field: 'system_lockout_required'
       },
       trainedWorkforce: {
-        type: DataTypes.STRING,
+        type: DataTypes.BOOLEAN,
         allowNull: false,
         field: 'trained_workforce'
       },
@@ -64,20 +64,15 @@ class TaskHazard extends Sequelize.Model {
         field: 'location'
       },
       status: {
-        type: DataTypes.ENUM('Active', 'Inactive', 'Completed', 'Pending', 'Rejected'),
+        type: DataTypes.STRING,
+        allowNull: false,
         defaultValue: 'Pending',
         field: 'status'
-      },
-      geofenceLimit: {
-        type: DataTypes.INTEGER,
-        allowNull: false,
-        defaultValue: 200,
-        field: 'geofence_limit'
       }
     }, {
       sequelize,
-      modelName: 'task_hazards',
-      tableName: 'task_hazards',
+      modelName: 'risk_assessments',
+      tableName: 'risk_assessments',
       timestamps: true,
       underscored: true,
       paranoid: true
@@ -95,11 +90,6 @@ class TaskHazard extends Sequelize.Model {
       as: 'company'
     });
 
-    this.hasMany(models.task_risks,{ 
-      foreignKey: 'taskHazardId', 
-      as: 'risks' 
-    });
-
     this.belongsTo(models.user, {
       foreignKey: 'supervisorId',
       as: 'supervisor'
@@ -107,10 +97,16 @@ class TaskHazard extends Sequelize.Model {
 
     // Many-to-many relationship with users for multiple individuals
     this.belongsToMany(models.user, {
-      through: models.task_hazard_individuals,
-      foreignKey: 'taskHazardId',
+      through: models.risk_assessment_individuals,
+      foreignKey: 'riskAssessmentId',
       otherKey: 'userId',
       as: 'individuals'
+    });
+
+    // One-to-many relationship with risk assessment risks
+    this.hasMany(models.risk_assessment_risks, {
+      foreignKey: 'riskAssessmentId',
+      as: 'risks'
     });
   };
 
@@ -120,7 +116,7 @@ class TaskHazard extends Sequelize.Model {
         { model: models.company, 
           as: 'company', 
           attributes: ['id', 'name'] },
-        { model: models.task_risks, as: 'risks' },
+        { model: models.risk_assessment_risks, as: 'risks' },
         { model: models.user, as: 'supervisor', attributes: ["id", "email", "name", "role"] },
         { model: models.user, as: 'individuals', attributes: ["id", "email", "name", "role"] },
       ],
@@ -133,8 +129,7 @@ class TaskHazard extends Sequelize.Model {
         'systemLockoutRequired', 
         'trainedWorkforce', 
         'location', 
-        'status', 
-        'geofenceLimit',
+        'status',
         'createdAt'
       ],
       order: [['createdAt', 'DESC']],
@@ -143,4 +138,4 @@ class TaskHazard extends Sequelize.Model {
   }
 }
 
-module.exports = TaskHazard;
+module.exports = RiskAssessment;
