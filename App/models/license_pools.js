@@ -88,7 +88,6 @@ class LicensePool extends Sequelize.Model {
         allowNull: true,
         comment: 'Additional notes about the license pool'
       },
-      // paymentId removed - payment management functionality deprecated
       createdAt: {
         field: 'created_at',
         type: DataTypes.DATE,
@@ -142,8 +141,6 @@ class LicensePool extends Sequelize.Model {
       foreignKey: 'licensePoolId', 
       as: 'allocations' 
     });
-    
-    // Payment association removed - payment management functionality deprecated
   }
 
   // Instance methods

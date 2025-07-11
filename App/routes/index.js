@@ -10,6 +10,7 @@ const tacticRoutes = require('./tacticRoutes');
 const riskAssessmentRoutes = require('./risk_assessment.routes');
 const notificationRoutes = require('./notification.routes');
 
+const licenseRoutes = require('./license.routes');
 
 router.use('/auth', authRoutes);
 router.use('/admin', adminRoutes);
@@ -21,5 +22,6 @@ router.use('/tactics', tacticRoutes);
 router.use('/risk-assessments', riskAssessmentRoutes);
 router.use('/notifications', notificationRoutes);
 
+router.use('/licenses', licenseRoutes);
 
 module.exports = router;

@@ -5,6 +5,7 @@ const User = models.user;
 const Company = models.company;
 const { v4: uuidv4 } = require('uuid');
 const notificationController = require('./notificationController');
+const { Op } = require('sequelize');
 
 // =================== LICENSE POOL MANAGEMENT ===================
 
@@ -257,6 +258,9 @@ exports.updateLicensePool = async (req, res) => {
 
 // Allocate license to a user
 exports.allocateLicense = async (req, res) => {
+  console.log('🚀 License allocation request received:', req.body);
+  console.log('👤 User making request:', { id: req.user?.id, role: req.user?.role });
+  
   const t = await models.sequelize.transaction();
   
   try {
@@ -271,8 +275,11 @@ exports.allocateLicense = async (req, res) => {
       autoRenew 
     } = req.body;
 
+    console.log('📋 Request data:', { licensePoolId, userId, validFrom, customValidityMonths, autoRenew });
+
     // Validate input
     if (!licensePoolId || !userId) {
+      console.log('❌ Validation failed: Missing required fields');
       return res.status(400).json({
         status: false,
         message: 'Missing required fields: licensePoolId, userId'
@@ -281,22 +288,38 @@ exports.allocateLicense = async (req, res) => {
 
     // Only superuser or admin can allocate licenses
     if (req.user.role !== 'superuser' && req.user.role !== 'admin') {
+      console.log('❌ Access denied: User role is', req.user.role);
       return res.status(403).json({
         status: false,
         message: 'Only superusers and admins can allocate licenses'
       });
     }
 
+    console.log('✅ User authorized for license allocation');
+
     // Check if license pool exists and has available licenses
+    console.log('🔍 Looking for license pool with ID:', licensePoolId);
     const licensePool = await LicensePool.findByPk(licensePoolId);
     if (!licensePool) {
+      console.log('❌ License pool not found');
       return res.status(404).json({
         status: false,
         message: 'License pool not found'
       });
     }
 
+    console.log('✅ License pool found:', { 
+      id: licensePool.id, 
+      name: licensePool.poolName, 
+      available: licensePool.availableLicenses,
+      status: licensePool.status 
+    });
+
     if (!licensePool.canAllocateLicense()) {
+      console.log('❌ Cannot allocate license from pool:', { 
+        status: licensePool.status, 
+        available: licensePool.availableLicenses 
+      });
       return res.status(400).json({
         status: false,
         message: 'No available licenses in this pool or pool is not active'
@@ -304,15 +327,20 @@ exports.allocateLicense = async (req, res) => {
     }
 
     // Check if user exists
+    console.log('🔍 Looking for user with ID:', userId);
     const user = await User.findByPk(userId);
     if (!user) {
+      console.log('❌ User not found');
       return res.status(404).json({
         status: false,
         message: 'User not found'
       });
     }
 
+    console.log('✅ User found:', { id: user.id, email: user.email });
+
     // Check if user already has an allocation from this pool
+    console.log('🔍 Checking for existing allocations...');
     const existingAllocation = await LicenseAllocation.findOne({
       where: { 
         licensePoolId, 
@@ -322,19 +350,27 @@ exports.allocateLicense = async (req, res) => {
     });
 
     if (existingAllocation) {
+      console.log('❌ User already has active license from this pool');
+      await t.rollback();
       return res.status(409).json({
         status: false,
         message: 'User already has an active license from this pool'
       });
     }
 
+    console.log('✅ No existing allocation found');
+
     // Calculate validity dates
+    console.log('📅 Calculating validity dates...');
     const startDate = validFrom ? new Date(validFrom) : new Date();
     const endDate = new Date(startDate);
     const validityMonths = customValidityMonths || licensePool.validityPeriodMonths;
     endDate.setMonth(endDate.getMonth() + validityMonths);
 
+    console.log('📅 Validity period:', { startDate, endDate, validityMonths });
+
     // Create license allocation
+    console.log('💾 Creating license allocation...');
     const allocation = await LicenseAllocation.create({
       licensePoolId,
       userId,
@@ -348,38 +384,80 @@ exports.allocateLicense = async (req, res) => {
       companyId: user.companyId
     }, { transaction: t });
 
+    console.log('✅ License allocation created:', allocation.id);
+
     // Update license pool allocated count
-    await licensePool.allocateLicense();
+    console.log('📊 Updating license pool count...');
+    try {
+      await licensePool.increment('allocatedLicenses', { by: 1, transaction: t });
+      console.log('✅ License pool updated');
+    } catch (poolUpdateError) {
+      console.error('❌ Error updating license pool:', poolUpdateError);
+      // Continue anyway - the allocation is more important than the count
+      console.log('⚠️ Continuing despite pool update error...');
+    }
 
-    // Create notifications
-    await notificationController.createNotification(
-      userId,
-      'License Allocated',
-      `A new license has been allocated to you from pool "${licensePool.poolName}". Valid until ${endDate.toLocaleDateString()}.`,
-      'license'
-    );
-
-    await notificationController.createNotification(
-      req.user.id,
-      'License Allocation Successful',
-      `Successfully allocated license from pool "${licensePool.poolName}" to ${user.name} (${user.email}).`,
-      'license'
-    );
-
+    console.log('💾 Committing transaction...');
     await t.commit();
+    console.log('✅ Transaction committed successfully');
 
-    return res.status(201).json({
+    const response = {
       status: true,
       message: 'License allocated successfully',
       data: allocation
+    };
+
+    console.log('🎉 License allocation completed successfully!');
+    res.status(201).json(response);
+
+    // Create notifications asynchronously (don't wait for them)
+    console.log('📧 Creating notifications asynchronously...');
+    setImmediate(async () => {
+      try {
+        if (notificationController && typeof notificationController.createNotification === 'function') {
+          await notificationController.createNotification(
+            userId,
+            'License Allocated',
+            `A new license has been allocated to you from pool "${licensePool.poolName}". Valid until ${endDate.toLocaleDateString()}.`,
+            'license'
+          );
+
+          await notificationController.createNotification(
+            req.user.id,
+            'License Allocation Successful',
+            `Successfully allocated license from pool "${licensePool.poolName}" to ${user.name} (${user.email}).`,
+            'license'
+          );
+          console.log('✅ Notifications created successfully');
+        } else {
+          console.log('⚠️ Notification controller not available, skipping notifications');
+        }
+      } catch (notificationError) {
+        console.log('⚠️ Notification creation failed:', notificationError.message);
+        // This won't affect the allocation since it's already committed and response sent
+      }
     });
 
   } catch (error) {
-    await t.rollback();
+    console.error('💥 License allocation failed:', error);
+    console.error('📋 Error details:', {
+      message: error.message,
+      stack: error.stack,
+      name: error.name
+    });
+    
+    try {
+      await t.rollback();
+      console.log('🔄 Transaction rolled back');
+    } catch (rollbackError) {
+      console.error('💥 Rollback failed:', rollbackError);
+    }
+    
     return res.status(500).json({
       status: false,
       message: 'Error allocating license',
-      error: error.message
+      error: error.message,
+      details: process.env.NODE_ENV === 'development' ? error.stack : undefined
     });
   }
 };
@@ -673,9 +751,9 @@ exports.getLicenseAnalytics = async (req, res) => {
       attributes: [
         'status',
         [models.sequelize.fn('COUNT', models.sequelize.col('id')), 'count'],
-        [models.sequelize.fn('SUM', models.sequelize.col('totalLicenses')), 'totalLicenses'],
-        [models.sequelize.fn('SUM', models.sequelize.col('allocatedLicenses')), 'allocatedLicenses'],
-        [models.sequelize.fn('SUM', models.sequelize.col('totalAmount')), 'totalAmount']
+        [models.sequelize.fn('SUM', models.sequelize.col('total_licenses')), 'totalLicenses'],
+        [models.sequelize.fn('SUM', models.sequelize.col('allocated_licenses')), 'allocatedLicenses'],
+        [models.sequelize.fn('SUM', models.sequelize.col('total_amount')), 'totalAmount']
       ],
       group: ['status'],
       raw: true
@@ -697,7 +775,7 @@ exports.getLicenseAnalytics = async (req, res) => {
       where: {
         status: 'active',
         validUntil: {
-          [models.sequelize.Op.between]: [new Date(), new Date(Date.now() + 30 * 24 * 60 * 60 * 1000)]
+          [Op.between]: [new Date(), new Date(Date.now() + 30 * 24 * 60 * 60 * 1000)]
         },
         ...(companyId ? { companyId } : {})
       },
@@ -719,7 +797,7 @@ exports.getLicenseAnalytics = async (req, res) => {
     const recentActivity = await LicenseAllocation.findAll({
       where: companyId ? { companyId } : {},
       limit: 10,
-      order: [['createdAt', 'DESC']],
+      order: [['created_at', 'DESC']],
       include: [
         {
           model: User,
@@ -756,4 +834,6 @@ exports.getLicenseAnalytics = async (req, res) => {
       error: error.message
     });
   }
-}; 
+};
+
+ 
