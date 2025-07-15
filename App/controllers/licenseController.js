@@ -258,9 +258,6 @@ exports.updateLicensePool = async (req, res) => {
 
 // Allocate license to a user
 exports.allocateLicense = async (req, res) => {
-  console.log('🚀 License allocation request received:', req.body);
-  console.log('👤 User making request:', { id: req.user?.id, role: req.user?.role });
-  
   const t = await models.sequelize.transaction();
   
   try {
@@ -274,8 +271,6 @@ exports.allocateLicense = async (req, res) => {
       notes,
       autoRenew 
     } = req.body;
-
-    console.log('📋 Request data:', { licensePoolId, userId, validFrom, customValidityMonths, autoRenew });
 
     // Validate input
     if (!licensePoolId || !userId) {
@@ -295,10 +290,7 @@ exports.allocateLicense = async (req, res) => {
       });
     }
 
-    console.log('✅ User authorized for license allocation');
 
-    // Check if license pool exists and has available licenses
-    console.log('🔍 Looking for license pool with ID:', licensePoolId);
     const licensePool = await LicensePool.findByPk(licensePoolId);
     if (!licensePool) {
       console.log('❌ License pool not found');
@@ -307,13 +299,6 @@ exports.allocateLicense = async (req, res) => {
         message: 'License pool not found'
       });
     }
-
-    console.log('✅ License pool found:', { 
-      id: licensePool.id, 
-      name: licensePool.poolName, 
-      available: licensePool.availableLicenses,
-      status: licensePool.status 
-    });
 
     if (!licensePool.canAllocateLicense()) {
       console.log('❌ Cannot allocate license from pool:', { 
@@ -327,20 +312,15 @@ exports.allocateLicense = async (req, res) => {
     }
 
     // Check if user exists
-    console.log('🔍 Looking for user with ID:', userId);
     const user = await User.findByPk(userId);
     if (!user) {
-      console.log('❌ User not found');
       return res.status(404).json({
         status: false,
         message: 'User not found'
       });
     }
 
-    console.log('✅ User found:', { id: user.id, email: user.email });
-
     // Check if user already has an allocation from this pool
-    console.log('🔍 Checking for existing allocations...');
     const existingAllocation = await LicenseAllocation.findOne({
       where: { 
         licensePoolId, 
@@ -358,19 +338,13 @@ exports.allocateLicense = async (req, res) => {
       });
     }
 
-    console.log('✅ No existing allocation found');
-
     // Calculate validity dates
-    console.log('📅 Calculating validity dates...');
     const startDate = validFrom ? new Date(validFrom) : new Date();
     const endDate = new Date(startDate);
     const validityMonths = customValidityMonths || licensePool.validityPeriodMonths;
     endDate.setMonth(endDate.getMonth() + validityMonths);
 
-    console.log('📅 Validity period:', { startDate, endDate, validityMonths });
-
     // Create license allocation
-    console.log('💾 Creating license allocation...');
     const allocation = await LicenseAllocation.create({
       licensePoolId,
       userId,
@@ -384,17 +358,11 @@ exports.allocateLicense = async (req, res) => {
       companyId: user.companyId
     }, { transaction: t });
 
-    console.log('✅ License allocation created:', allocation.id);
-
     // Update license pool allocated count
-    console.log('📊 Updating license pool count...');
     try {
       await licensePool.increment('allocatedLicenses', { by: 1, transaction: t });
-      console.log('✅ License pool updated');
     } catch (poolUpdateError) {
-      console.error('❌ Error updating license pool:', poolUpdateError);
       // Continue anyway - the allocation is more important than the count
-      console.log('⚠️ Continuing despite pool update error...');
     }
 
     console.log('💾 Committing transaction...');
@@ -434,7 +402,6 @@ exports.allocateLicense = async (req, res) => {
         }
       } catch (notificationError) {
         console.log('⚠️ Notification creation failed:', notificationError.message);
-        // This won't affect the allocation since it's already committed and response sent
       }
     });
 
@@ -538,7 +505,7 @@ exports.getUserLicenseStatus = async (req, res) => {
         message: 'Access denied'
       });
     }
-
+    
     const allocations = await LicenseAllocation.findAll({
       where: { userId },
       include: [
@@ -551,8 +518,10 @@ exports.getUserLicenseStatus = async (req, res) => {
       order: [['validUntil', 'DESC']]
     });
 
-    const activeAllocations = allocations.filter(allocation => allocation.isActive());
-    const expiredAllocations = allocations.filter(allocation => allocation.isExpired());
+
+    const activeAllocations = allocations.filter(allocation => allocation.status === 'allocated');
+    const expiredAllocations = allocations.filter(allocation => allocation.status === 'revoked');
+
     const upcomingAllocations = allocations.filter(allocation => 
       allocation.status === 'allocated' && new Date() < new Date(allocation.validFrom)
     );
@@ -582,18 +551,19 @@ exports.revokeLicense = async (req, res) => {
   const t = await models.sequelize.transaction();
   
   try {
-    const { allocationId } = req.params;
+    const { id } = req.params;
     const { reason } = req.body;
 
     // Only superuser or admin can revoke licenses
     if (req.user.role !== 'superuser' && req.user.role !== 'admin') {
+      console.log("❌ Access denied - insufficient permissions");
       return res.status(403).json({
         status: false,
         message: 'Only superusers and admins can revoke licenses'
       });
     }
 
-    const allocation = await LicenseAllocation.findByPk(allocationId, {
+    const allocation = await LicenseAllocation.findByPk(id, {
       include: [
         {
           model: User,
@@ -609,6 +579,7 @@ exports.revokeLicense = async (req, res) => {
     });
 
     if (!allocation) {
+      console.log("❌ License allocation not found");
       return res.status(404).json({
         status: false,
         message: 'License allocation not found'
@@ -616,24 +587,34 @@ exports.revokeLicense = async (req, res) => {
     }
 
     if (allocation.status === 'revoked') {
+      console.log("❌ License is already revoked");
       return res.status(400).json({
         status: false,
         message: 'License is already revoked'
       });
     }
 
+    console.log("🔄 Revoking license...");
+    
     // Revoke the license
     await allocation.revoke(req.user.id, reason);
-
     // Create notifications
-    await notificationController.createNotification(
-      allocation.userId,
-      'License Revoked',
-      `Your license from pool "${allocation.licensePool.poolName}" has been revoked. ${reason ? `Reason: ${reason}` : ''}`,
-      'license'
-    );
+    try {
+      await notificationController.createNotification(
+        allocation.userId,
+        'License Revoked',
+        `Your license from pool "${allocation.licensePool.poolName}" has been revoked. ${reason ? `Reason: ${reason}` : ''}`,
+        'license'
+      );
+      console.log("✅ Notification created");
+    } catch (notificationError) {
+      console.log("⚠️ Notification creation failed:", notificationError.message);
+    }
 
     await t.commit();
+
+    // Reload the allocation to get updated data
+    await allocation.reload();
 
     return res.status(200).json({
       status: true,
@@ -642,6 +623,7 @@ exports.revokeLicense = async (req, res) => {
     });
 
   } catch (error) {
+    console.error("❌ Error in revokeLicense:", error);
     await t.rollback();
     return res.status(500).json({
       status: false,
@@ -831,6 +813,96 @@ exports.getLicenseAnalytics = async (req, res) => {
     return res.status(500).json({
       status: false,
       message: 'Error fetching license analytics',
+      error: error.message
+    });
+  }
+};
+
+// Debug function: Get ALL license allocations in the system
+exports.getAllAllocationsDebug = async (req, res) => {
+  try {
+    // Only superuser can access this debug endpoint
+    if (req.user.role !== 'superuser') {
+      return res.status(403).json({
+        status: false,
+        message: 'Access denied - superuser only'
+      });
+    }
+    
+    const allocations = await LicenseAllocation.findAll({
+      include: [
+        {
+          model: User,
+          as: 'user',
+          attributes: ['id', 'email', 'role']
+        },
+        {
+          model: LicensePool,
+          as: 'licensePool',
+          attributes: ['id', 'poolName', 'licenseType', 'status']
+        }
+      ],
+      order: [['createdAt', 'DESC']]
+    });
+
+    return res.status(200).json({
+      status: true,
+      data: {
+        totalAllocations: allocations.length,
+        allocations: allocations
+      }
+    });
+
+  } catch (error) {
+    console.error("❌ Error in getAllAllocationsDebug:", error);
+    return res.status(500).json({
+      status: false,
+      message: 'Error fetching all allocations',
+      error: error.message
+    });
+  }
+};
+
+// Debug function: Get ALL license pools in the system
+exports.getAllPoolsDebug = async (req, res) => {
+  try {
+    // Only superuser can access this debug endpoint
+    if (req.user.role !== 'superuser') {
+      return res.status(403).json({
+        status: false,
+        message: 'Access denied - superuser only'
+      });
+    }
+    
+    const pools = await LicensePool.findAll({
+      include: [
+        {
+          model: User,
+          as: 'purchaser',
+          attributes: ['id', 'email', 'role']
+        },
+        {
+          model: Company,
+          as: 'company',
+          attributes: ['id', 'name']
+        }
+      ],
+      order: [['createdAt', 'DESC']]
+    });
+    
+    return res.status(200).json({
+      status: true,
+      data: {
+        totalPools: pools.length,
+        pools: pools
+      }
+    });
+
+  } catch (error) {
+    console.error("❌ Error in getAllPoolsDebug:", error);
+    return res.status(500).json({
+      status: false,
+      message: 'Error fetching all pools',
       error: error.message
     });
   }
