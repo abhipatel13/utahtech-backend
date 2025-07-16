@@ -27,6 +27,13 @@ router.get('/allocations', auth, LicenseController.getAllAllocations);
 // Revoke license allocation
 router.delete('/allocations/:id', auth, LicenseController.revokeLicense);
 
-console.log('🔧 License routes registration complete');
+// Get user license status
+router.get('/users/:userId/status', auth, LicenseController.getUserLicenseStatus);
+
+// Debug endpoint: Get all license allocations in the system (superuser only)
+router.get('/debug/all-allocations', auth, LicenseController.getAllAllocationsDebug);
+
+// Debug endpoint: Get all license pools and their status (superuser only)
+router.get('/debug/all-pools', auth, LicenseController.getAllPoolsDebug);
 
 module.exports = router; 
