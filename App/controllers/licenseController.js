@@ -46,6 +46,14 @@ exports.createLicensePool = async (req, res) => {
     // TODO: Implement payment verification when payment system is ready
     let paymentId = null;
 
+    // Debug: Check user object
+    console.log('🔍 User creating license pool:', {
+      id: req.user.id,
+      role: req.user.role,
+      company_id: req.user.company_id,
+      email: req.user.email
+    });
+
     // Create license pool
     const licensePool = await LicensePool.create({
       poolName,
@@ -57,9 +65,11 @@ exports.createLicensePool = async (req, res) => {
       pricePerLicense,
       poolExpiryDate: poolExpiryDate || null,
       notes,
-      companyId: companyId || null,
+      companyId: req.user.company_id, // Always use the authenticated user's company
       paymentId
     }, { transaction: t });
+
+    console.log('🏢 License pool created with company_id:', licensePool.companyId);
 
     // Create notification for successful pool creation
     await notificationController.createNotification(
@@ -97,10 +107,8 @@ exports.getAllLicensePools = async (req, res) => {
     if (licenseType) whereClause.licenseType = licenseType;
     if (companyId) whereClause.companyId = companyId;
 
-    // For non-superusers, only show pools from their company
-    if (req.user.role !== 'superuser') {
-      whereClause.companyId = req.user.companyId;
-    }
+    // All users can only see pools from their company
+    whereClause.companyId = req.user.company_id;
 
     const licensePools = await LicensePool.findAll({
       where: whereClause,
@@ -188,8 +196,8 @@ exports.getLicensePoolById = async (req, res) => {
       });
     }
 
-    // Check permissions
-    if (req.user.role !== 'superuser' && req.user.role !== 'admin' && licensePool.companyId !== req.user.companyId) {
+    // Check permissions - all users can only access their company's pools
+    if (licensePool.companyId !== req.user.company_id) {
       return res.status(403).json({
         status: false,
         message: 'Access denied'
@@ -355,7 +363,7 @@ exports.allocateLicense = async (req, res) => {
       restrictions: restrictions || null,
       notes: notes || null,
       autoRenew: autoRenew || false,
-      companyId: user.companyId
+      companyId: user.company_id
     }, { transaction: t });
 
     // Update license pool allocated count
@@ -439,9 +447,13 @@ exports.getAllAllocations = async (req, res) => {
     if (userId) whereClause.userId = userId;
     if (licensePoolId) whereClause.licensePoolId = licensePoolId;
 
-    // For non-superusers, only show allocations from their company
-    if (req.user.role !== 'superuser' && req.user.role !== 'admin') {
-      whereClause.userId = req.user.id; // Regular users can only see their own allocations
+    // Apply company-based filtering based on user role
+    if (req.user.role === 'superuser' || req.user.role === 'admin') {
+      // Superusers and admins can see all allocations for their company
+      whereClause.companyId = req.user.company_id;
+    } else {
+      // Regular users can only see their own allocations
+      whereClause.userId = req.user.id;
     }
 
     let allocations = await LicenseAllocation.findAll({
@@ -724,8 +736,8 @@ exports.getLicenseAnalytics = async (req, res) => {
 
     const { companyId } = req.query;
     const whereClause = {};
-    if (companyId) whereClause.companyId = companyId;
-    if (req.user.role !== 'superuser') whereClause.companyId = req.user.companyId;
+    // All users can only see analytics for their company
+    whereClause.companyId = req.user.company_id;
 
     // Get license pools statistics
     const poolStats = await LicensePool.findAll({

@@ -10,26 +10,50 @@ const dbConfig = {
   database: process.env.DB_NAME || 'utahtech_db'
 };
 
-// Test users with different roles
+// Original users (commented out)
+// const users = [
+//   {
+//     email: 'hello1@utahtechnicalservicesllc.com',
+//     password: 'superuser123',
+//     role: 'superuser'
+//   },
+//   {
+//     email: 'hello2@utahtechnicalservicesllc.com',
+//     password: 'superuser123',
+//     role: 'admin'
+//   },
+//   {
+//     email: 'hello3@utahtechnicalservicesllc.com',
+//     password: 'superuser123',
+//     role: 'supervisor'
+//   },
+//   {
+//     email: 'hello4@utahtechnicalservicesllc.com',
+//     password: 'admin123',
+//     role: 'user'
+//   }
+// ];
+
+// Test users with different roles for Abhi Production
 const users = [
   {
-    email: 'hello1@utahtechnicalservicesllc.com',
+    email: 'superuser@abhiproduction.com',
     password: 'superuser123',
     role: 'superuser'
   },
   {
-    email: 'hello2@utahtechnicalservicesllc.com',
-    password: 'superuser123',
+    email: 'admin@abhiproduction.com',
+    password: 'admin123',
     role: 'admin'
   },
   {
-    email: 'hello3@utahtechnicalservicesllc.com',
-    password: 'superuser123',
+    email: 'supervisor@abhiproduction.com',
+    password: 'supervisor123',
     role: 'supervisor'
   },
   {
-    email: 'hello4@utahtechnicalservicesllc.com',
-    password: 'admin123',
+    email: 'user@abhiproduction.com',
+    password: 'user123',
     role: 'user'
   }
 ];
@@ -57,23 +81,38 @@ const seedUsers = async () => {
       console.log('Company table created');
     }
 
-    // Check if Utah Technical Services company exists, create if it doesn't
+    // Original company logic (commented out)
+    // const [existingCompany] = await connection.execute(
+    //   'SELECT id FROM company WHERE name = ?',
+    //   ['Utah Technical Services LLC']
+    // );
+    // let companyId;
+    // if (existingCompany.length === 0) {
+    //   const [companyResult] = await connection.execute(
+    //     'INSERT INTO company (name) VALUES (?)',
+    //     ['Utah Technical Services LLC']
+    //   );
+    //   companyId = companyResult.insertId;
+    //   console.log('Created company: Utah Technical Services LLC with ID:', companyId);
+    // } else {
+    //   companyId = existingCompany[0].id;
+    //   console.log('Company Utah Technical Services LLC already exists with ID:', companyId);
+    // }
+
+    // Use the existing Abhi Production company (ID: 3)
+    const companyId = 3;
+    
+    // Verify that the company exists
     const [existingCompany] = await connection.execute(
-      'SELECT id FROM company WHERE name = ?',
-      ['Utah Technical Services LLC']
+      'SELECT id, name FROM company WHERE id = ?',
+      [companyId]
     );
 
-    let companyId;
     if (existingCompany.length === 0) {
-      const [companyResult] = await connection.execute(
-        'INSERT INTO company (name) VALUES (?)',
-        ['Utah Technical Services LLC']
-      );
-      companyId = companyResult.insertId;
-      console.log('Created company: Utah Technical Services LLC with ID:', companyId);
+      console.error(`Company with ID ${companyId} does not exist!`);
+      process.exit(1);
     } else {
-      companyId = existingCompany[0].id;
-      console.log('Company Utah Technical Services LLC already exists with ID:', companyId);
+      console.log(`Using company: ${existingCompany[0].name} (ID: ${companyId})`);
     }
 
     // Check if users table exists
