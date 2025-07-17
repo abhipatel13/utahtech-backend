@@ -11,9 +11,14 @@ router.use(ensureCompanyAccess('task_hazards'));
 // Create a new Task Hazard
 router.post("/", task_hazards.create);
 
+// Get supervisor approvals grouped by task (admin/superuser: all company approvals, supervisor: own approvals only)
+router.get("/approvals", task_hazards.getAllApprovals);
 
-router.put("/approval/:id", task_hazards.supervisorApproval);
+// Approve or deny a Task Hazard
+router.put("/:id/approval", task_hazards.supervisorApproval);
 
+// Get approval history for a Task Hazard
+router.get("/:id/approval-history", task_hazards.getApprovalHistory);
 // Retrieve all Task Hazards
 router.get("/", task_hazards.findAll);
 

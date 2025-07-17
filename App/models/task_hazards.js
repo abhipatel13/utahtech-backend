@@ -112,6 +112,12 @@ class TaskHazard extends Sequelize.Model {
       otherKey: 'userId',
       as: 'individuals'
     });
+
+    // Association with supervisor approvals
+    this.hasMany(models.supervisor_approvals, {
+      foreignKey: 'taskHazardId',
+      as: 'approvals'
+    });
   };
 
   static scopes(models) {
@@ -122,7 +128,7 @@ class TaskHazard extends Sequelize.Model {
           attributes: ['id', 'name'] },
         { model: models.task_risks, as: 'risks' },
         { model: models.user, as: 'supervisor', attributes: ["id", "email", "name", "role"] },
-        { model: models.user, as: 'individuals', attributes: ["id", "email", "name", "role"] },
+        { model: models.user, as: 'individuals', attributes: ["id", "email", "name", "role"] }
       ],
       attributes: [
         'id', 
