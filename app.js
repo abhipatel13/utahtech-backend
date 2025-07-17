@@ -33,22 +33,40 @@ app.use((req, res, next) => {
 const allowedOrigins = process.env.ALLOWED_ORIGINS ? 
   process.env.ALLOWED_ORIGINS.split(',') : 
   [
+    'https://utah-tech.vercel.app',
+    'https://18.188.112.65.nip.io',
     'http://localhost:3000',
     'http://localhost:3001',
     'http://localhost:3002',
     'http://127.0.0.1:3000',
     'http://127.0.0.1:3001',
+    'http://127.0.0.1:3002',
     'http://localhost:3003'
   ];
 
 const corsOptions = {
   origin: function (origin, callback) {
-    if (!origin || allowedOrigins.includes(origin)) {
+    // Allow requests with no origin (like mobile apps or curl requests)
+    if (!origin) {
       callback(null, true);
-    } else {
-      console.log('Blocked origin:', origin);
-      callback(new Error('Not allowed by CORS'));
+      return;
     }
+
+    // Check if origin is in allowed origins
+    if (allowedOrigins.includes(origin)) {
+      callback(null, true);
+      return;
+    }
+
+    // Allow all Vercel preview URLs (for development)
+    if (origin.includes('vercel.app') || origin.includes('abhipatel13s-projects.vercel.app')) {
+      callback(null, true);
+      return;
+    }
+
+    // Log and block the origin
+    console.log('Blocked origin:', origin);
+    callback(new Error('Not allowed by CORS'));
   },
   credentials: true,
   methods: ['GET', 'POST', 'PUT', 'DELETE', 'OPTIONS'],

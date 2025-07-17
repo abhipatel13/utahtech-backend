@@ -1,0 +1,189 @@
+[
+  {
+    "name": "SilverPeak Mining Corp",
+    "locations": [
+      {
+        "name": "Elko Silver Mine",
+        "latitude": 40.8324,
+        "longitude": -115.7631,
+        "locationDesc": "Primary silver mining and processing facility",
+        "locationLongDesc": "Elko Silver Mine - Main silver ore mining and processing plant with crushing, grinding, and flotation circuits. Handles 2,000 tons per day of silver-bearing ore from local mines.",
+        "maintenancePlants": [
+          {
+            "name": "Elko Processing Facility",
+            "description": "Primary silver processing and refining facility"
+          },
+          {
+            "name": "Elko Equipment Center",
+            "description": "Mining equipment maintenance and repair facility"
+          }
+        ]
+      },
+      {
+        "name": "Reno Refinery",
+        "latitude": 39.5296,
+        "longitude": -119.8138,
+        "locationDesc": "Silver refining and smelting facility",
+        "locationLongDesc": "Reno Refinery - Advanced silver refining and smelting facility processing concentrate from multiple mines. Produces 99.9% pure silver bars and specialty products.",
+        "maintenancePlants": [
+          {
+            "name": "Reno Equipment Center",
+            "description": "Equipment maintenance and repair facility"
+          }
+        ]
+      },
+      {
+        "name": "Winnemucca Mine",
+        "latitude": 40.9730,
+        "longitude": -117.7357,
+        "locationDesc": "Secondary silver mining operation",
+        "locationLongDesc": "Winnemucca Mine - Secondary silver mining operation with underground and surface mining capabilities. Processes 1,500 tons per day of silver ore.",
+        "maintenancePlants": [
+          {
+            "name": "Winnemucca Maintenance Hub",
+            "description": "Regional maintenance and support center"
+          }
+        ]
+      }
+    ],
+    "emailDomain": "silverpeakmining.com",
+    "cmms": "SPM"
+  },
+  {
+    "name": "CopperCanyon Resources",
+    "locations": [
+      {
+        "name": "Phoenix Copper Complex",
+        "latitude": 33.4484,
+        "longitude": -112.0740,
+        "locationDesc": "Central copper processing and administration facility",
+        "locationLongDesc": "Phoenix Copper Complex - Headquarters facility housing copper processing operations, administrative offices, and central control systems. Processes 5,000 tons per day of copper concentrate.",
+        "maintenancePlants": [
+          {
+            "name": "Phoenix Central Plant",
+            "description": "Central copper processing and administration facility"
+          },
+          {
+            "name": "Phoenix Equipment Depot",
+            "description": "Equipment storage and maintenance facility"
+          }
+        ]
+      },
+      {
+        "name": "Tucson Smelter",
+        "latitude": 32.2226,
+        "longitude": -110.9747,
+        "locationDesc": "Secondary copper processing and smelting facility",
+        "locationLongDesc": "Tucson Smelter - Secondary processing plant with smelting and refining capabilities. Handles copper concentrate from multiple mines and produces 99.9% pure copper cathodes.",
+        "maintenancePlants": [
+          {
+            "name": "Tucson Processing Center",
+            "description": "Secondary copper processing and smelting facility"
+          }
+        ]
+      },
+      {
+        "name": "Morenci Open Pit",
+        "latitude": 33.0500,
+        "longitude": -109.3667,
+        "locationDesc": "Large-scale open-pit copper mine",
+        "locationLongDesc": "Morenci Open Pit - Large-scale open-pit copper mine, one of the largest in North America. Features 24/7 operations with extensive equipment fleet and processing facilities.",
+        "maintenancePlants": [
+          {
+            "name": "Morenci Maintenance Facility",
+            "description": "Open-pit mine maintenance and operations center"
+          },
+          {
+            "name": "Bisbee Equipment Depot",
+            "description": "Equipment storage and maintenance depot"
+          }
+        ]
+      }
+    ],
+    "emailDomain": "coppercanyonresources.com",
+    "cmms": "CCR"
+  },
+  {
+    "name": "GoldRidge Mining Ventures",
+    "locations": [
+      {
+        "name": "Fairbanks Gold Mine",
+        "latitude": 64.8378,
+        "longitude": -147.7164,
+        "locationDesc": "Arctic gold mining and processing facility",
+        "locationLongDesc": "Fairbanks Gold Mine - Specialized facility designed for extreme cold weather gold mining and processing. Features heated processing circuits and winterized equipment for year-round operation in sub-zero temperatures.",
+        "maintenancePlants": [
+          {
+            "name": "Fairbanks Arctic Plant",
+            "description": "Arctic gold processing and extraction facility"
+          }
+        ]
+      },
+      {
+        "name": "Nome Placer Operations",
+        "latitude": 64.5011,
+        "longitude": -165.4064,
+        "locationDesc": "Coastal placer gold mining and processing",
+        "locationLongDesc": "Nome Placer Operations - Coastal facility processing placer gold from beach and offshore deposits. Includes specialized dredging equipment and marine-grade processing systems.",
+        "maintenancePlants": [
+          {
+            "name": "Nome Gold Processing",
+            "description": "Coastal gold processing and refining plant"
+          }
+        ]
+      },
+      {
+        "name": "Juneau Operations",
+        "latitude": 58.3019,
+        "longitude": -134.4197,
+        "locationDesc": "Southeast Alaska mining operations",
+        "locationLongDesc": "Juneau Operations - Regional mining operations serving southeast Alaska. Provides marine transport logistics and specialized equipment for remote mining sites.",
+        "maintenancePlants": [
+          {
+            "name": "Juneau Equipment Center",
+            "description": "Southeast Alaska equipment and logistics center"
+          }
+        ]
+      }
+    ],
+    "emailDomain": "goldridgemining.com",
+    "cmms": "GMV"
+  },
+  {
+    "name": "IronMountain Extraction",
+    "locations": [
+      {
+        "name": "Duluth Iron Works",
+        "latitude": 46.7867,
+        "longitude": -92.1005,
+        "locationDesc": "Iron ore processing and pelletizing facility",
+        "locationLongDesc": "Duluth Iron Works - Major iron ore processing facility with pelletizing plants and port facilities. Processes taconite ore into iron ore pellets for steel production, handling 25 million tons annually.",
+        "maintenancePlants": [
+          {
+            "name": "Duluth Iron Works",
+            "description": "Iron ore processing and pelletizing facility"
+          },
+          {
+            "name": "Duluth Port Facility",
+            "description": "Port operations and shipping facility"
+          }
+        ]
+      },
+      {
+        "name": "Hibbing Mine",
+        "latitude": 47.4271,
+        "longitude": -92.9377,
+        "locationDesc": "Iron ore mining and primary processing center",
+        "locationLongDesc": "Hibbing Mine - Large-scale iron ore mining and primary processing facility. Features open-pit mining operations, crushing circuits, and rail loading facilities for ore transport.",
+        "maintenancePlants": [
+          {
+            "name": "Hibbing Processing Plant",
+            "description": "Iron ore mining and primary processing center"
+          }
+        ]
+      }
+    ],
+    "emailDomain": "ironmountainextraction.com",
+    "cmms": "IME"
+  }
+] 
