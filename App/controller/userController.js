@@ -99,26 +99,133 @@ module.exports.getAllUserRestricted = async (req, res) => {
 
 module.exports.updateUser = async (req, res) => {
   try {
-    if (req.body && req.params.id) {
-      let userId = req.params.id;
-      let UserSet = req.body;
-      let user = await User.findOne({ where: { id: userId } });
-      // Check if record exists in db
-      if (user) {
-        var edited = await user.update(UserSet);
-      }
+    const userId = req.params.id;
+    const { email, role, password, name, phone_no } = req.body;
 
-      if (edited) {
-        res.send(edited);
+    // Only superusers can update users
+    if (req.user.role !== 'superuser') {
+      return res.status(403).send({ 
+        status: 403, 
+        message: "Access denied. Only superusers can update users." 
+      });
+    }
+
+    // Find the user to update
+    const user = await User.findOne({ 
+      where: { 
+        id: userId,
+        company_id: req.user.company_id
+      } 
+    });
+
+    if (!user) {
+      return res.status(404).send({ 
+        status: 404, 
+        message: "User not found or access denied" 
+      });
+    }
+
+    // Prepare update data
+    const updateData = {};
+    
+    // Update email if provided
+    if (email && email !== user.email) {
+      // Check if email is already in use
+      const existingUser = await User.findOne({ 
+        where: { 
+          email: email,
+          id: { [Op.ne]: userId } // Exclude current user
+        } 
+      });
+      
+      if (existingUser) {
+        return res.status(400).send({ 
+          status: 400, 
+          message: "Email is already in use by another user" 
+        });
+      }
+      updateData.email = email;
+    }
+
+    // Update role if provided
+    if (role && role !== user.role) {
+      const validRoles = ['superuser', 'admin', 'supervisor', 'user'];
+      if (!validRoles.includes(role)) {
+        return res.status(400).send({ 
+          status: 400, 
+          message: "Invalid role. Must be one of: " + validRoles.join(', ') 
+        });
+      }
+      updateData.role = role;
+    }
+
+    // Update password if provided
+    if (password) {
+      // Hash the new password
+      const hashRegex = /^\$2b\$/;
+      if (!hashRegex.test(password)) {
+        updateData.password = bcrypt.hashSync(password, 10);
       } else {
-        res
-          .status(500)
-          .send({ status: 500, data: null, message: "User not  found" })
-          .end();
+        updateData.password = password;
       }
     }
+
+    // Update other fields
+    if (name !== undefined) updateData.name = name;
+    if (phone_no !== undefined) updateData.phone_no = phone_no;
+
+    // Update the user
+    const updatedUser = await user.update(updateData);
+
+    // Return updated user without password
+    const userResponse = {
+      id: updatedUser.id,
+      email: updatedUser.email,
+      name: updatedUser.name,
+      phone_no: updatedUser.phone_no,
+      role: updatedUser.role,
+      company_id: updatedUser.company_id,
+      updatedAt: updatedUser.updatedAt
+    };
+
+    return res.status(200).send({ 
+      status: 200, 
+      data: userResponse,
+      message: "User updated successfully" 
+    });
+
   } catch (err) {
-    return res.status(500).send(err);
+    console.error("Error in updateUser:", err);
+    
+    // Handle Sequelize validation errors
+    if (err.name === 'SequelizeValidationError') {
+      const validationErrors = err.errors.map(error => ({
+        field: error.path,
+        message: error.message,
+        value: error.value
+      }));
+      
+      return res.status(400).send({ 
+        status: 400, 
+        message: "Validation error", 
+        errors: validationErrors
+      });
+    }
+    
+    // Handle unique constraint errors
+    if (err.name === 'SequelizeUniqueConstraintError') {
+      return res.status(400).send({ 
+        status: 400, 
+        message: "Email already exists", 
+        error: "A user with this email already exists"
+      });
+    }
+    
+    return res.status(500).send({ 
+      status: 500, 
+      message: "Internal server error", 
+      error: err.message 
+    });
   }
 };
 
@@ -145,15 +252,98 @@ module.exports.getUserById = async function (req, res) {
 module.exports.deleteUser = async (req, res) => {
   try {
     const userId = req.params.id;
-    console.log("userId",userId);
-    const user = await User.findOne({ where: { id: userId } });
-    if (!user) {
-      return res.status(404).send({ status: 404, message: "User not found" });
+
+    // Only superusers can delete users
+    if (req.user.role !== 'superuser') {
+      return res.status(403).send({ 
+        status: 403, 
+        message: "Access denied. Only superusers can delete users." 
+      });
     }
+
+    const user = await User.findOne({ 
+      where: { 
+        id: userId,
+        company_id: req.user.company_id // Can only delete users from same company
+      } 
+    });
+
+    if (!user) {
+      return res.status(404).send({ 
+        status: 404, 
+        message: "User not found or access denied" 
+      });
+    }
+
     await user.destroy();
-    return res.status(200).send({ status: 200, message: "User deleted successfully" });
+    return res.status(200).send({ 
+      status: 200, 
+      message: "User deleted successfully" 
+    });
   } catch (err) {
-    return res.status(500).send(err);
+    console.error("Error in deleteUser:", err);
+    return res.status(500).send({ 
+      status: 500, 
+      message: "Internal server error", 
+      error: err.message 
+    });
+  }
+};
+
+// Reset user password (superuser only)
+module.exports.resetUserPassword = async (req, res) => {
+  try {
+    const userId = req.params.id;
+    const { newPassword } = req.body;
+
+    // Only superusers can reset passwords
+    if (req.user.role !== 'superuser') {
+      return res.status(403).send({ 
+        status: 403, 
+        message: "Access denied. Only superusers can reset passwords." 
+      });
+    }
+
+    if (!newPassword) {
+      return res.status(400).send({ 
+        status: 400, 
+        message: "New password is required" 
+      });
+    }
+
+    // Find the user to update
+    const user = await User.findOne({ 
+      where: { 
+        id: userId,
+        company_id: req.user.company_id // Can only reset passwords for users from same company
+      } 
+    });
+
+    if (!user) {
+      return res.status(404).send({ 
+        status: 404, 
+        message: "User not found or access denied" 
+      });
+    }
+
+    // Hash the new password
+    const hashedPassword = bcrypt.hashSync(newPassword, 10);
+
+    // Update the user's password
+    await user.update({ password: hashedPassword });
+
+    return res.status(200).send({ 
+      status: 200, 
+      message: "Password reset successfully" 
+    });
+
+  } catch (err) {
+    console.error("Error in resetUserPassword:", err);
+    return res.status(500).send({ 
+      status: 500, 
+      message: "Internal server error", 
+      error: err.message 
+    });
   }
 };
 
