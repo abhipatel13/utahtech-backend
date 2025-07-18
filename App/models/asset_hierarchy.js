@@ -124,6 +124,11 @@ class AssetHierarchy extends Sequelize.Model {
       foreignKey: 'assetHierarchyId',
       as: 'taskHazards'
     });
+
+    this.hasMany(models.risk_assessments, { 
+      foreignKey: 'assetHierarchyId',
+      as: 'riskAssessments'
+    });
   };
 }
 
