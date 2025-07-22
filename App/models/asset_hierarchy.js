@@ -22,6 +22,11 @@ class AssetHierarchy extends Sequelize.Model {
         field: 'name',
         allowNull: false
       },
+      description: {
+        type: Sequelize.TEXT,    // Asset Description
+        field: 'description',
+        allowNull: true
+      },
       cmmsInternalId: {
         type: Sequelize.STRING,  // CMMS Internal ID
         field: 'cmms_internal_id',
@@ -123,6 +128,11 @@ class AssetHierarchy extends Sequelize.Model {
     this.hasMany(models.task_hazards, { 
       foreignKey: 'assetHierarchyId',
       as: 'taskHazards'
+    });
+
+    this.hasMany(models.risk_assessments, { 
+      foreignKey: 'assetHierarchyId',
+      as: 'riskAssessments'
     });
   };
 }
