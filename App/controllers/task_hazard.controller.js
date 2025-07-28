@@ -4,6 +4,7 @@ const TaskRisk = db.task_risks;
 const User = db.user;
 const Notification = db.notifications;
 const SupervisorApproval = db.supervisor_approvals;
+const { successResponse, errorResponse, sendResponse, paginatedResponse } = require('../helper/responseHelper');
 
 /**
  * Helper function to convert likelihood and consequence strings to integers
@@ -49,23 +50,7 @@ const convertToInteger = (value) => {
   return 1; // Default fallback
 };
 
-/**
- * Helper function to standardize error responses
- */
-const createErrorResponse = (status, message, details = null) => {
-  const response = { status: false, message };
-  if (details) response.details = details;
-  return response;
-};
 
-/**
- * Helper function to standardize success responses
- */
-const createSuccessResponse = (message, data = null) => {
-  const response = { status: true, message };
-  if (data) response.data = data;
-  return response;
-};
 
 /**
  * Helper function to get user's company ID with validation
@@ -78,34 +63,7 @@ const getUserCompanyId = (req) => {
   return userCompanyId;
 };
 
-/**
- * Helper function to validate required fields for task hazard creation/update
- */
-const validateRequiredFields = (body) => {
-  const missingFields = [];
-  const requiredFields = [
-    { field: 'date', name: 'Date' },
-    { field: 'time', name: 'Time' },
-    { field: 'scopeOfWork', name: 'Scope of Work' },
-    { field: 'trainedWorkforce', name: 'Trained Workforce' },
-    { field: 'individual', name: 'Individual' },
-    { field: 'supervisor', name: 'Supervisor' },
-    { field: 'location', name: 'Location' }
-  ];
 
-  requiredFields.forEach(({ field, name }) => {
-    if (!body[field]) {
-      missingFields.push(name);
-    }
-  });
-
-  // Check if risks array exists and is not empty for creation
-  if (!body.risks || !Array.isArray(body.risks) || body.risks.length === 0) {
-    missingFields.push('Risks (at least one risk is required)');
-  }
-
-  return missingFields;
-};
 
 /**
  * Helper function to parse and validate individual emails
@@ -331,27 +289,14 @@ exports.create = async (req, res) => {
     // Validate user company access
     const userCompanyId = getUserCompanyId(req);
 
-    // Validate required fields
-    const missingFields = validateRequiredFields(req.body);
-    if (missingFields.length > 0) {
-      await transaction.rollback();
-      return res.status(400).json(createErrorResponse(
-        "Missing required fields",
-        {
-          missingFields,
-          receivedFields: Object.keys(req.body)
-        }
-      ));
-    }
-
-    // Parse and validate individuals (outside transaction for better error handling)
+    // Parse and validate individuals (database lookup)
     let individuals, supervisor;
     try {
       individuals = await parseAndValidateIndividuals(req.body.individual, transaction);
       supervisor = await findAndValidateSupervisor(req.body.supervisor, transaction);
     } catch (validationError) {
       await transaction.rollback();
-      return res.status(404).json(createErrorResponse(validationError.message));
+      return sendResponse(res, errorResponse(validationError.message, 404));
     }
 
     // Process risks and determine status
@@ -417,9 +362,10 @@ exports.create = async (req, res) => {
     // Commit transaction
     await transaction.commit();
 
-    res.status(201).json(createSuccessResponse(
+    sendResponse(res, successResponse(
       "Task Hazard created successfully",
-      { taskHazard, risks: processedRisks }
+      { taskHazard, risks: processedRisks },
+      201
     ));
 
   } catch (error) {
@@ -427,8 +373,9 @@ exports.create = async (req, res) => {
     if (transaction) await transaction.rollback();
     
     console.error('Error creating task hazard:', error);
-    res.status(500).json(createErrorResponse(
-      error.message || "Some error occurred while creating the Task Hazard."
+    sendResponse(res, errorResponse(
+      error.message || "Some error occurred while creating the Task Hazard.",
+      500
     ));
   }
 };
@@ -449,7 +396,7 @@ exports.getAllApprovals = async (req, res) => {
     });
 
     if (!user || !user.role || !(user.role === "admin" || user.role === "superuser" || user.role === "supervisor")) {
-      return res.status(403).json(createErrorResponse("Access denied. Supervisor, admin, or superuser privileges required."));
+      return sendResponse(res, errorResponse("Access denied. Supervisor, admin, or superuser privileges required.", 403));
     }
 
     // Determine if user is admin/superuser or just supervisor
@@ -618,7 +565,7 @@ exports.getAllApprovals = async (req, res) => {
     // Sort task hazards by most recent date
     groupedTaskHazards.sort((a, b) => new Date(b.date) - new Date(a.date));
 
-    res.status(200).json(createSuccessResponse(
+    sendResponse(res, successResponse(
       "Supervisor approvals retrieved successfully",
       {
         taskHazards: groupedTaskHazards,
@@ -633,39 +580,51 @@ exports.getAllApprovals = async (req, res) => {
 
   } catch (error) {
     console.error('Error retrieving supervisor approvals:', error);
-    res.status(500).json(createErrorResponse(
-      error.message || "Some error occurred while retrieving supervisor approvals."
+    sendResponse(res, errorResponse(
+      error.message || "Some error occurred while retrieving supervisor approvals.",
+      500
     ));
   }
 };
 
 /**
  * Retrieve all Task Hazards from the database for the authenticated user's company
- * Uses optimized queries with proper association loading
+ * Uses optimized queries with proper association loading and pagination
  */
 exports.findAll = async (req, res) => {
   try {
     // Validate user company access
     const userCompanyId = getUserCompanyId(req);
     
-    // Fetch task hazards with optimized query (default scope includes all needed associations)
-    const taskHazards = await TaskHazard.findAll({
-      where: { companyId: userCompanyId }
+    // Get pagination parameters
+    const { page, limit, offset } = req.pagination || { page: 1, limit: 100, offset: 0 };
+    
+    // Fetch task hazards with optimized query and pagination
+    const { count, rows: taskHazards } = await TaskHazard.findAndCountAll({
+      where: { companyId: userCompanyId },
+      limit,
+      offset,
+      order: [['createdAt', 'DESC']]
       // Default scope automatically includes: company, risks, supervisor, individuals
     });
 
     // Format for frontend response
     const formattedTaskHazards = taskHazards.map(formatTaskHazard);
 
-    res.status(200).json(createSuccessResponse(
-      "Task Hazards retrieved successfully",
-      formattedTaskHazards
+    // Send paginated response using helper
+    sendResponse(res, paginatedResponse(
+      formattedTaskHazards,
+      page,
+      limit,
+      count,
+      "Task Hazards retrieved successfully"
     ));
     
   } catch (error) {
     console.error('Error retrieving task hazards:', error);
-    res.status(500).json(createErrorResponse(
-      error.message || "Some error occurred while retrieving task hazards."
+    sendResponse(res, errorResponse(
+      error.message || "Some error occurred while retrieving task hazards.",
+      500
     ));
   }
 };
@@ -691,7 +650,7 @@ exports.findOne = async (req, res) => {
       formattedTaskHazard.approvalInfo = await getApprovalInfo(req.params.id);
     }
 
-    res.status(200).json(createSuccessResponse(
+    sendResponse(res, successResponse(
       "Task Hazard retrieved successfully",
       formattedTaskHazard
     ));
@@ -700,11 +659,12 @@ exports.findOne = async (req, res) => {
     console.error('Error retrieving task hazard:', error);
     
     if (error.message === "Task Hazard not found") {
-      return res.status(404).json(createErrorResponse(error.message));
+      return sendResponse(res, errorResponse(error.message, 404));
     }
     
-    res.status(500).json(createErrorResponse(
-      error.message || `Error retrieving Task Hazard with id ${req.params.id}`
+    sendResponse(res, errorResponse(
+      error.message || `Error retrieving Task Hazard with id ${req.params.id}`,
+      500
     ));
   }
 };
@@ -724,14 +684,14 @@ exports.update = async (req, res) => {
       }
     });
     if(!user || !user?.role){
-      return res.status(403).json(createErrorResponse("Submitting user not found"));
+      return sendResponse(res, errorResponse("Submitting user not found", 403));
     }
 
     // Find task hazard with company validation and current approval (before starting transaction)
     const taskHazard = await findTaskHazardByIdAndCompany(req.body.id, userCompanyId);
 
     if(!taskHazard){
-      return res.status(404).json(createErrorResponse("Task Hazard not found"));
+      return sendResponse(res, errorResponse("Task Hazard not found", 404));
     }
 
     // Get current active approval if exists
@@ -759,7 +719,7 @@ exports.update = async (req, res) => {
       individuals = await parseAndValidateIndividuals(req.body.individual);
       supervisor = await findAndValidateSupervisor(req.body.supervisor);
     } catch (validationError) {
-      return res.status(404).json(createErrorResponse(validationError.message));
+      return sendResponse(res, errorResponse(validationError.message, 404));
     }
 
     // Start transaction for data modifications
@@ -852,7 +812,7 @@ exports.update = async (req, res) => {
       return { taskHazard, risks: updatedRisks };
     });
 
-    res.status(200).json(createSuccessResponse(
+    sendResponse(res, successResponse(
       "Task Hazard updated successfully",
       result
     ));
@@ -861,11 +821,12 @@ exports.update = async (req, res) => {
     console.error('Error updating task hazard:', error);
     
     if (error.message === "Task Hazard not found") {
-      return res.status(404).json(createErrorResponse(error.message));
+      return sendResponse(res, errorResponse(error.message, 404));
     }
     
-    res.status(500).json(createErrorResponse(
-      error.message || "Some error occurred while updating the Task Hazard."
+    sendResponse(res, errorResponse(
+      error.message || "Some error occurred while updating the Task Hazard.",
+      500
     ));
   }
 };
@@ -888,12 +849,12 @@ exports.supervisorApproval = async (req, res) => {
     });
 
     if(!user || !user?.role || user.role === "user"){
-      return res.status(403).json(createErrorResponse("Access denied. Supervisor privileges required to approve task hazards."));
+      return sendResponse(res, errorResponse("Access denied. Supervisor privileges required to approve task hazards.", 403));
     }
 
     const taskHazard = await findTaskHazardByIdAndCompany(req.body.id, userCompanyId);
     if(taskHazard.status !== "Pending"){
-      return res.status(400).json(createErrorResponse("Task hazard is not pending approval."));
+      return sendResponse(res, errorResponse("Task hazard is not pending approval.", 400));
     }
 
     // Find the current pending approval
@@ -906,7 +867,7 @@ exports.supervisorApproval = async (req, res) => {
     });
 
     if (!pendingApproval) {
-      return res.status(404).json(createErrorResponse("No pending approval found for this task hazard."));
+      return sendResponse(res, errorResponse("No pending approval found for this task hazard.", 404));
     }
 
     transaction = await db.sequelize.transaction();
@@ -942,7 +903,7 @@ exports.supervisorApproval = async (req, res) => {
 
     } else {
       await transaction.rollback();
-      return res.status(400).json(createErrorResponse("Invalid approval status. Must be 'Approved' or 'Rejected'."));
+      return sendResponse(res, errorResponse("Invalid approval status. Must be 'Approved' or 'Rejected'.", 400));
     }
 
     // Create notifications for all individuals
@@ -973,7 +934,7 @@ exports.supervisorApproval = async (req, res) => {
       }
     };
 
-    res.status(200).json(createSuccessResponse(
+    sendResponse(res, successResponse(
       `Task hazard ${approvalAction} successfully`, 
       response
     ));
@@ -982,8 +943,9 @@ exports.supervisorApproval = async (req, res) => {
     if (transaction) await transaction.rollback();
     
     console.error('Error processing supervisor approval:', error);
-    res.status(500).json(createErrorResponse(
-      error.message || "Some error occurred while processing the approval."
+    sendResponse(res, errorResponse(
+      error.message || "Some error occurred while processing the approval.",
+      500
     ));
   }
 }
@@ -1042,7 +1004,7 @@ exports.getApprovalHistory = async (req, res) => {
       } : null
     }));
 
-    res.status(200).json(createSuccessResponse(
+    sendResponse(res, successResponse(
       "Approval history retrieved successfully",
       {
         taskHazardId: taskHazard.id,
@@ -1055,11 +1017,12 @@ exports.getApprovalHistory = async (req, res) => {
     console.error('Error retrieving approval history:', error);
     
     if (error.message === "Task Hazard not found") {
-      return res.status(404).json(createErrorResponse(error.message));
+      return sendResponse(res, errorResponse(error.message, 404));
     }
     
-    res.status(500).json(createErrorResponse(
-      error.message || `Error retrieving approval history for Task Hazard with id ${req.params.id}`
+    sendResponse(res, errorResponse(
+      error.message || `Error retrieving approval history for Task Hazard with id ${req.params.id}`,
+      500
     ));
   }
 };
@@ -1089,17 +1052,18 @@ exports.delete = async (req, res) => {
       await taskHazard.destroy({ transaction });
     });
 
-    res.status(200).json(createSuccessResponse("Task Hazard deleted successfully"));
+    sendResponse(res, successResponse("Task Hazard deleted successfully"));
 
   } catch (error) {
     console.error('Error deleting task hazard:', error);
     
     if (error.message === "Task Hazard not found") {
-      return res.status(404).json(createErrorResponse(error.message));
+      return sendResponse(res, errorResponse(error.message, 404));
     }
     
-    res.status(500).json(createErrorResponse(
-      error.message || "Some error occurred while deleting the Task Hazard."
+    sendResponse(res, errorResponse(
+      error.message || "Some error occurred while deleting the Task Hazard.",
+      500
     ));
   }
 };

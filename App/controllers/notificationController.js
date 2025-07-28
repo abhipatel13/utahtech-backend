@@ -1,14 +1,24 @@
 const models = require('../models');
+const { successResponse, errorResponse, sendResponse } = require('../helper/responseHelper');
+const { sanitizeInput } = require('../helper/validationHelper');
+
 const Notification = models.notifications;
 const User = models.user;
 
-// Create notification
+/**
+ * Create notification (internal helper function)
+ * @param {number} userId - User ID
+ * @param {string} title - Notification title
+ * @param {string} message - Notification message
+ * @param {string} type - Notification type
+ * @returns {Promise<object>} Created notification
+ */
 exports.createNotification = async (userId, title, message, type = 'system') => {
   try {
     return await Notification.create({
-      userId,
-      title,
-      message,
+      userId: userId,
+      title: sanitizeInput(title),
+      message: sanitizeInput(message),
       type
     });
   } catch (error) {
@@ -17,30 +27,52 @@ exports.createNotification = async (userId, title, message, type = 'system') => 
   }
 };
 
-// Get user's notifications
+/**
+ * Get user's notifications
+ * @param {object} req - Express request object
+ * @param {object} res - Express response object
+ */
 exports.getUserNotifications = async (req, res) => {
   try {
     const userId = req.user.id;
-    
+
+    // Get notifications with user details
     const notifications = await Notification.findAll({
       where: { user_id: userId },
+      include: [{
+        model: User,
+        as: 'user',
+        attributes: ['id', 'name', 'email'],
+        required: false
+      }],
       order: [['createdAt', 'DESC']]
     });
 
-    return res.status(200).json({
-      status: true,
-      data: notifications
-    });
+    // Format notifications to match API documentation
+    const formattedNotifications = notifications.map(notification => ({
+      id: notification.id,
+      title: notification.title,
+      message: notification.message,
+      type: notification.type,
+      isRead: notification.isRead,
+      createdAt: notification.createdAt,
+      user: notification.user || null
+    }));
+
+    const response = successResponse('Notifications retrieved successfully', formattedNotifications);
+    sendResponse(res, response);
   } catch (error) {
-    return res.status(500).json({
-      status: false,
-      message: 'Error fetching notifications',
-      error: error.message
-    });
+    console.error('Error fetching notifications:', error);
+    const response = errorResponse('Error fetching notifications', 500);
+    sendResponse(res, response);
   }
 };
 
-// Mark notification as read
+/**
+ * Mark notification as read
+ * @param {object} req - Express request object
+ * @param {object} res - Express response object
+ */
 exports.markAsRead = async (req, res) => {
   try {
     const { notificationId } = req.params;
@@ -54,25 +86,106 @@ exports.markAsRead = async (req, res) => {
     });
 
     if (!notification) {
-      return res.status(404).json({
-        status: false,
-        message: 'Notification not found'
-      });
+      const response = errorResponse('Notification not found', 404);
+      return sendResponse(res, response);
     }
 
-    await notification.update({ isRead: true });
+    // Only update if not already read
+    if (!notification.isRead) {
+      await notification.update({ isRead: true });
+    }
 
-    return res.status(200).json({
-      status: true,
-      message: 'Notification marked as read'
-    });
+    const response = successResponse('Notification marked as read');
+    sendResponse(res, response);
   } catch (error) {
-    return res.status(500).json({
-      status: false,
-      message: 'Error marking notification as read',
-      error: error.message
-    });
+    console.error('Error marking notification as read:', error);
+    const response = errorResponse('Error marking notification as read', 500);
+    sendResponse(res, response);
   }
 };
 
-// TODO: Add license expiration checking functionality 
+/**
+ * Mark all notifications as read for user
+ * @param {object} req - Express request object
+ * @param {object} res - Express response object
+ */
+exports.markAllAsRead = async (req, res) => {
+  try {
+    const userId = req.user.id;
+
+    await Notification.update(
+      { isRead: true },
+      { 
+        where: { 
+          user_id: userId,
+          isRead: false
+        }
+      }
+    );
+
+    const response = successResponse('All notifications marked as read');
+    sendResponse(res, response);
+  } catch (error) {
+    console.error('Error marking all notifications as read:', error);
+    const response = errorResponse('Error marking all notifications as read', 500);
+    sendResponse(res, response);
+  }
+};
+
+/**
+ * Delete notification
+ * @param {object} req - Express request object
+ * @param {object} res - Express response object
+ */
+exports.deleteNotification = async (req, res) => {
+  try {
+    const { notificationId } = req.params;
+    const userId = req.user.id;
+
+    const notification = await Notification.findOne({
+      where: { 
+        id: notificationId,
+        user_id: userId
+      }
+    });
+
+    if (!notification) {
+      const response = errorResponse('Notification not found', 404);
+      return sendResponse(res, response);
+    }
+
+    await notification.destroy();
+
+    const response = successResponse('Notification deleted successfully');
+    sendResponse(res, response);
+  } catch (error) {
+    console.error('Error deleting notification:', error);
+    const response = errorResponse('Error deleting notification', 500);
+    sendResponse(res, response);
+  }
+};
+
+/**
+ * Get unread notification count for user
+ * @param {object} req - Express request object
+ * @param {object} res - Express response object
+ */
+exports.getUnreadCount = async (req, res) => {
+  try {
+    const userId = req.user.id;
+
+    const unreadCount = await Notification.count({
+      where: { 
+        user_id: userId,
+        isRead: false
+      }
+    });
+
+    const response = successResponse('Unread count retrieved successfully', { count: unreadCount });
+    sendResponse(res, response);
+  } catch (error) {
+    console.error('Error getting unread count:', error);
+    const response = errorResponse('Error getting unread count', 500);
+    sendResponse(res, response);
+  }
+}; 

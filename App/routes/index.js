@@ -6,10 +6,9 @@ const authRoutes = require('./auth');
 const userRoutes = require('./user');
 const taskHazardRoutes = require('./task_hazard.routes');
 const assetHierarchyRoutes = require('./asset_hierarchy.routes');
-const tacticRoutes = require('./tacticRoutes');
+const tacticRoutes = require('./tactic.routes');
 const riskAssessmentRoutes = require('./risk_assessment.routes');
 const notificationRoutes = require('./notification.routes');
-
 const licenseRoutes = require('./license.routes');
 
 router.use('/auth', authRoutes);
@@ -21,7 +20,6 @@ router.use('/users', userRoutes);
 router.use('/tactics', tacticRoutes);
 router.use('/risk-assessments', riskAssessmentRoutes);
 router.use('/notifications', notificationRoutes);
-
 router.use('/licenses', licenseRoutes);
 
 module.exports = router;
