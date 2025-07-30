@@ -69,7 +69,7 @@ exports.validatePassword = (password) => {
  * @returns {boolean} True if valid role
  */
 exports.isValidRole = (role) => {
-  const validRoles = ['superuser', 'admin', 'supervisor', 'user'];
+  const validRoles = ['universal_user', 'superuser', 'admin', 'supervisor', 'user'];
   return validRoles.includes(role);
 };
 

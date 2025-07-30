@@ -30,7 +30,7 @@ class Users extends Sequelize.Model {
         },
         company_id: {
           type: DataTypes.INTEGER,
-          allowNull: false,
+          allowNull: true, // Allow null for universal_user role
           references: {
             model: 'company',
             key: 'id'
@@ -153,6 +153,13 @@ class Users extends Sequelize.Model {
   // Get user permissions based on role
   getPermissions() {
     const rolePermissions = {
+      universal_user: [
+        'all_access',
+        'universal_management',
+        'create_superusers',
+        'manage_all_companies',
+        'system_administration'
+      ],
       superuser: ['all_access'],
       admin: ['all_access'],
       supervisor: [
@@ -172,6 +179,21 @@ class Users extends Sequelize.Model {
     };
     
     return rolePermissions[this.role] || [];
+  }
+
+  // Check if user is universal_user
+  isUniversalUser() {
+    return this.role === 'universal_user';
+  }
+
+  // Check if user has access to specific company
+  hasCompanyAccess(companyId) {
+    // Universal users have access to all companies
+    if (this.isUniversalUser()) {
+      return true;
+    }
+    // Other users can only access their own company
+    return this.company_id === companyId;
   }
 
   async updateLastLogin() {

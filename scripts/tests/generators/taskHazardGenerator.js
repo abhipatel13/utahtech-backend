@@ -515,7 +515,6 @@ async function checkAndAddTaskHazardsToDatabase(db, taskHazardDataPath) {
     const taskHazards = JSON.parse(jsonContent);
     
     if (taskHazards.length === 0) {
-      console.log("No task hazard data found in JSON file.");
       return;
     }
     
@@ -529,12 +528,9 @@ async function checkAndAddTaskHazardsToDatabase(db, taskHazardDataPath) {
     });
     
     if (existingTaskHazard) {
-      console.log("Task hazards already exist in database, skipping import.");
       return;
     }
-    
-    console.log("Adding task hazards to database...");
-    
+        
     // Use the task hazards directly from JSON
     const taskHazardsToCreate = taskHazards.map(taskHazard => ({
       companyId: taskHazard.companyId,
@@ -574,9 +570,7 @@ async function checkAndAddTaskHazardsToDatabase(db, taskHazardDataPath) {
         console.warn(`Error creating task hazard: ${error.message}`);
       }
     }
-    
-    console.log(`Successfully created ${createdCount} task hazards in database.`);
-    
+        
   } catch (error) {
     console.error("Error adding task hazards to database:", error);
   }

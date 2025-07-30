@@ -9,6 +9,11 @@ const ensureCompanyAccess = (model) => {
                 });
             }
 
+            // Universal users have unrestricted access to all companies
+            if (req.user.role === 'universal_user') {
+                return next();
+            }
+
             // Get company ID from user (prefer company_id over company)
             const userCompanyId = req.user.company_id || req.user.company?.id;
             
