@@ -99,14 +99,14 @@ class AssetHierarchy extends Sequelize.Model {
         defaultValue: 0
       }
     },
-    {
-      sequelize,
-      modelName: 'asset_hierarchy',
-      tableName: 'asset_hierarchy',
-      timestamps: true,
-      underscored: true,
-      paranoid: true
-    });
+      {
+        sequelize,
+        modelName: 'asset_hierarchy',
+        tableName: 'asset_hierarchy',
+        timestamps: true,
+        underscored: true,
+        paranoid: true
+      });
   };
 
   static associate(models) {
@@ -119,20 +119,96 @@ class AssetHierarchy extends Sequelize.Model {
       foreignKey: 'parent',
       as: 'parentId'
     });
-    
-    this.belongsTo(models.company, { 
+
+    this.belongsTo(models.company, {
       foreignKey: 'companyId',
       as: 'company'
     });
 
-    this.hasMany(models.task_hazards, { 
+    this.hasMany(models.task_hazards, {
       foreignKey: 'assetHierarchyId',
       as: 'taskHazards'
     });
 
-    this.hasMany(models.risk_assessments, { 
+    this.hasMany(models.risk_assessments, {
       foreignKey: 'assetHierarchyId',
       as: 'riskAssessments'
+    });
+
+    // Add hooks after associations are defined
+    this.addHook('beforeDestroy', async (asset, options) => {
+      const { transaction } = options;
+
+      try {
+        // 1. Recursively soft delete all child assets
+        const childAssets = await models.asset_hierarchy.findAll({
+          where: { parent: asset.id },
+          transaction
+        });
+
+        for (const child of childAssets) {
+          await child.destroy({ transaction });
+        }
+
+        // 2. Soft delete associated task hazards
+        await models.task_hazards.destroy({
+          where: { assetHierarchyId: asset.id },
+          transaction
+        });
+
+        // 3. Soft delete associated risk assessments
+        await models.risk_assessments.destroy({
+          where: { assetHierarchyId: asset.id },
+          transaction
+        });
+
+        console.log(`Cascading soft delete completed for asset: ${asset.id} and ${childAssets.length} children`);
+      } catch (error) {
+        console.error(`Error in beforeDestroy hook for asset ${asset.id}:`, error);
+        throw error;
+      }
+    });
+
+    this.addHook('afterRestore', async (asset, options) => {
+      const { transaction } = options;
+
+      try {
+        // 1. Restore child assets that were soft deleted and had this asset as parent
+        const childAssets = await models.asset_hierarchy.unscoped().findAll({
+          where: {
+            parent: asset.id,
+            deletedAt: { [models.Sequelize.Op.ne]: null }
+          },
+          transaction
+        });
+
+        for (const child of childAssets) {
+          await child.restore({ transaction });
+        }
+
+        // 2. Restore associated task hazards that were soft deleted
+        await models.task_hazards.restore({
+          where: {
+            assetHierarchyId: asset.id,
+            deletedAt: { [models.Sequelize.Op.ne]: null }
+          },
+          transaction
+        });
+
+        // 3. Restore associated risk assessments that were soft deleted
+        await models.risk_assessments.restore({
+          where: {
+            assetHierarchyId: asset.id,
+            deletedAt: { [models.Sequelize.Op.ne]: null }
+          },
+          transaction
+        });
+
+        console.log(`Cascading restore completed for asset: ${asset.id} and ${childAssets.length} children`);
+      } catch (error) {
+        console.error(`Error in afterRestore hook for asset ${asset.id}:`, error);
+        throw error;
+      }
     });
   };
 }

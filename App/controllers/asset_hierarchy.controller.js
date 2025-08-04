@@ -191,7 +191,7 @@ const generateSystemErrorReport = (error) => {
 };
 
 /**
- * Process CSV file asynchronously
+ * Process CSV file asynchronously with hooks enabled
  * @param {object} fileUpload - File upload record
  * @param {Buffer} fileBuffer - CSV file buffer
  * @param {number} userCompanyId - User's company ID
@@ -209,265 +209,50 @@ const processCSVAsync = async (fileUpload, fileBuffer, userCompanyId) => {
         skip_empty_lines: true
       });
 
-      // Find all assets that are referenced by task hazards
-      const referencedAssets = await TaskHazards.unscoped().findAll({
-        where: {
-          companyId: userCompanyId
-        },
-        attributes: ['assetHierarchyId'],
-        group: 'assetHierarchyId',
-        transaction: t
-      });
-
-      const referencedAssetIds = new Set(referencedAssets.map(a => a.assetHierarchyId));
-
-      // Get all existing assets (including soft-deleted ones)
-      const existingAssets = await AssetHierarchy.unscoped().findAll({
-        where: {
-          companyId: userCompanyId
-        },
-        paranoid: false,
-        transaction: t
-      });
-
-      const existingAssetMap = new Map(existingAssets.map(asset => [asset.id, asset]));
-      const deletedAssetIds = new Set(existingAssets.filter(asset => asset.deletedAt !== null).map(asset => asset.id));
-
-      // Create a map for the new assets from CSV and validate required columns
-      const newAssetMap = new Map();
-      const validationErrors = [];
-
       if (assets.length === 0) {
         throw new Error("CSV file is empty or contains no valid data rows.");
       }
 
-      // Step 1: Determine ID strategy and validate consistency
-      const idsSet = new Set();
-      const cmmsInternalIdsSet = new Set();
-      const functionalLocationsSet = new Set();
-      let hasIds = false;
-      let idStrategy = null; // 'id', 'cmms_internal_id', or 'functional_location'
+      // Step 1: Validate CSV data and determine ID strategy
+      const { validatedAssets, idStrategy } = await validateCSVData(assets);
 
-      // First pass: collect all potential ID fields
-      for (let i = 0; i < assets.length; i++) {
-        const asset = assets[i];
-        const rowNumber = i + 1;
+      // Step 2: Get existing assets for comparison
+      const existingAssets = await AssetHierarchy.unscoped().findAll({
+        where: { companyId: userCompanyId },
+        paranoid:false,
+        transaction: t
+      });
+      const existingAssetMap = new Map(existingAssets.map(asset => [asset.id, asset]));
 
-        if (asset['id'] && asset['id'].trim() !== '') {
-          hasIds = true;
-          idsSet.add(asset['id'].trim());
-        }
-        if (asset['cmms_internal_id'] && asset['cmms_internal_id'].trim() !== '') {
-          cmmsInternalIdsSet.add(asset['cmms_internal_id'].trim());
-        }
-        if (asset['functional_location'] && asset['functional_location'].trim() !== '') {
-          functionalLocationsSet.add(asset['functional_location'].trim());
-        }
-      }
-
-      // Determine and validate ID strategy
-      if (hasIds) {
-        // Check if ALL rows have IDs and they are unique
-        if (idsSet.size !== assets.length) {
-          validationErrors.push(`ID column has non-unique values: found ${idsSet.size} unique IDs for ${assets.length} rows`);
-        }
-        idStrategy = 'id';
-      } else {
-        // No IDs provided, determine alternative strategy
-        const canUseCmmsId = cmmsInternalIdsSet.size === assets.length;
-        const canUseFunctionalLocation = functionalLocationsSet.size === assets.length;
-
-        if (canUseCmmsId && canUseFunctionalLocation) {
-          // Both are unique and complete, prefer cmms_internal_id
-          idStrategy = 'cmms_internal_id';
-        } else if (canUseCmmsId) {
-          idStrategy = 'cmms_internal_id';
-        } else if (canUseFunctionalLocation) {
-          idStrategy = 'functional_location';
-        } else {
-          validationErrors.push(`No valid unique ID column found: cmms_internal_id has ${cmmsInternalIdsSet.size} unique values, functional_location has ${functionalLocationsSet.size} unique values (need ${assets.length})`);
-        }
-      }
-
-      // Step 2: Validate each row and build asset map
-      const nameToIdMap = new Map(); // Track name -> last seen ID mapping
-      const rawParentRelationships = new Map(); // Track raw parent-child relationships before resolution
-
-      for (let i = 0; i < assets.length; i++) {
-        const asset = assets[i];
-        const rowNumber = i + 1;
-
-        // Validate required name field
-        if (!asset['name'] || asset['name'].trim() === '') {
-          validationErrors.push(`Missing name on row ${rowNumber}`);
-          continue;
-        }
-
-        // Determine the ID for this asset based on strategy
-        let assetId;
-        switch (idStrategy) {
-          case 'id':
-            assetId = asset['id'].trim();
-            break;
-          case 'cmms_internal_id':
-            if (!asset['cmms_internal_id'] || asset['cmms_internal_id'].trim() === '') {
-              validationErrors.push(`Missing cmms_internal_id on row ${rowNumber}`);
-              continue;
-            }
-            assetId = asset['cmms_internal_id'].trim();
-            break;
-          case 'functional_location':
-            if (!asset['functional_location'] || asset['functional_location'].trim() === '') {
-              validationErrors.push(`Missing functional_location on row ${rowNumber}`);
-              continue;
-            }
-            assetId = asset['functional_location'].trim();
-            break;
-          default:
-            validationErrors.push(`Unable to determine ID strategy on row ${rowNumber}`);
-            continue;
-        }
-
-        // Fill in missing fields with intelligent defaults
-        const name = asset['name'].trim();
-        const cmmsInternalId = asset['cmms_internal_id']?.trim() || assetId;
-        const functionalLocation = asset['functional_location']?.trim() || assetId;
-        const functionalLocationDesc = asset['functional_location_desc']?.trim() || name;
-
-        // Update name-to-ID mapping (last occurrence wins)
-        nameToIdMap.set(name, assetId);
-
-        // Store raw parent relationship if specified
-        const rawParentId = asset['parent_id']?.trim() || null;
-        if (rawParentId) {
-          rawParentRelationships.set(assetId, rawParentId);
-        }
-
-        // Build asset data
-        const assetData = {
-          id: assetId,
-          companyId: userCompanyId,
-          name: name,
-          description: asset['description']?.trim() || null,
-          cmmsInternalId: cmmsInternalId,
-          functionalLocation: functionalLocation,
-          functionalLocationDesc: functionalLocationDesc,
-          functionalLocationLongDesc: asset['functional_location_long_desc']?.trim() || functionalLocationDesc,
-          maintenancePlant: asset['maintenance_plant']?.trim() || 'Default Plant',
-          cmmsSystem: asset['cmms_system']?.trim() || 'Default System',
-          objectType: asset['object_type']?.trim() || 'Equipment',
-          systemStatus: asset['system_status']?.trim() || 'Active',
-          make: asset['make']?.trim() || null,
-          manufacturer: asset['manufacturer']?.trim() || null,
-          serialNumber: asset['serial_number']?.trim() || null,
-          parent: null, // Will be resolved in next step
-          level: 0
-        };
-
-        newAssetMap.set(assetId, assetData);
-      }
-
-      // Step 3: Resolve parent relationships (ID or name lookup)
-      const resolvedParentRelationships = new Map();
-
-      for (const [childId, rawParentId] of rawParentRelationships) {
-        let resolvedParentId = null;
-
-        // First check if rawParentId is a direct ID match
-        if (newAssetMap.has(rawParentId)) {
-          resolvedParentId = rawParentId;
-        } else if (nameToIdMap.has(rawParentId)) {
-          // If not a direct ID, check if it's a name that maps to an ID
-          resolvedParentId = nameToIdMap.get(rawParentId);
-        }
-
-        if (resolvedParentId) {
-          resolvedParentRelationships.set(childId, resolvedParentId);
-          // Update the asset data with resolved parent
-          const assetData = newAssetMap.get(childId);
-          assetData.parent = resolvedParentId;
-        } else {
-          const childAsset = newAssetMap.get(childId);
-          validationErrors.push(`Parent '${rawParentId}' not found for asset '${childAsset.name}' (${childId})`);
-        }
-      }
-
-      // Step 4: Validate for cyclic parent relationships
-      const detectCycle = (assetId, visited = new Set(), path = new Set()) => {
-        if (path.has(assetId)) {
-          return true; // Cycle detected
-        }
-        if (visited.has(assetId)) {
-          return false; // Already processed this branch
-        }
-
-        visited.add(assetId);
-        path.add(assetId);
-
-        const parentId = resolvedParentRelationships.get(assetId);
-        if (parentId && detectCycle(parentId, visited, path)) {
-          return true;
-        }
-
-        path.delete(assetId);
-        return false;
-      };
-
-      const visitedGlobal = new Set();
-      for (const assetId of newAssetMap.keys()) {
-        if (!visitedGlobal.has(assetId) && detectCycle(assetId, visitedGlobal)) {
-          const assetData = newAssetMap.get(assetId);
-          validationErrors.push(`Cyclic dependency detected with asset '${assetData.name}' (${assetId})`);
-        }
-      }
-
-      // If we found validation errors, throw an error with all issues
-      if (validationErrors.length > 0) {
-        const errorReport = generateValidationErrorReport(validationErrors, assets.length, idStrategy);
-        const validationError = new Error(errorReport);
-        validationError.name = 'ValidationError';
-        throw validationError;
-      }
-
-      // Step 5: Nullify all parent relationships first
-      await AssetHierarchy.update(
-        { parent: null },
-        {
-          where: { companyId: userCompanyId },
-          transaction: t
-        }
+      // Step 3: Determine which assets to delete (not in CSV)
+      const csvAssetIds = new Set(validatedAssets.map(asset => asset.id));
+      const assetsToDelete = existingAssets.filter(asset => 
+        !csvAssetIds.has(asset.id) && !asset.deletedAt // Only delete non-deleted assets
       );
 
-      // Step 6: Delete assets that are not in the new set and not referenced
-      // We need to do this in a way that respects the hierarchy
-      // Only consider non-deleted assets for deletion (don't delete already soft-deleted assets)
-      const assetsToDelete = [];
-      for (const [id, asset] of existingAssetMap) {
-        if (!newAssetMap.has(id) && !referencedAssetIds.has(id) && !deletedAssetIds.has(id)) {
-          assetsToDelete.push(id);
-        }
+      // Step 4: Delete assets not in CSV (hooks will handle cascading)
+      for (const asset of assetsToDelete) {
+        await asset.destroy({ transaction: t });
+        console.log(`Deleted asset: ${asset.id} (${asset.name})`);
       }
 
-      if (assetsToDelete.length > 0) {
-        await AssetHierarchy.destroy({
-          where: {
-            id: { [Op.in]: assetsToDelete }
-          },
-          transaction: t
-        });
-      }
-
-      // Step 7: Update or create assets (handle soft-deleted assets properly)
-      const assetMap = new Map();
-      const createdAssets = [];
-
-      for (const [id, assetData] of newAssetMap) {
+      // Step 5: Create or update assets from CSV
+      const processedAssets = [];
+      for (const assetData of validatedAssets) {
         let asset;
-
-        if (existingAssetMap.has(id)) {
-          // Update existing asset (including restoring soft-deleted ones)
-          asset = existingAssetMap.get(id);
-          const updateData = {
+        
+        if (existingAssetMap.has(assetData.id)) {
+          // Update existing asset
+          const existingAsset = existingAssetMap.get(assetData.id);
+          
+          // If asset was soft-deleted, restore it first
+          if (existingAsset.deletedAt) {
+            await existingAsset.restore({ transaction: t });
+            console.log(`Restored asset: ${assetData.id} (${assetData.name})`);
+          }
+          
+          // Update asset data
+          await existingAsset.update({
             name: assetData.name,
             description: assetData.description,
             cmmsInternalId: assetData.cmmsInternalId,
@@ -481,28 +266,17 @@ const processCSVAsync = async (fileUpload, fileBuffer, userCompanyId) => {
             make: assetData.make,
             manufacturer: assetData.manufacturer,
             serialNumber: assetData.serialNumber,
-            level: 0, // Will be recalculated later
-            parent: null // Reset parent, will be set later
-          };
-
-          // If asset was soft-deleted, restore it
-          if (deletedAssetIds.has(id)) {
-            updateData.deletedAt = null;
-          }
-
-          // Use unscoped update to handle soft-deleted records
-          await AssetHierarchy.unscoped().update(updateData, {
-            where: { id: id },
-            transaction: t
-          });
+            parent: assetData.parent,
+            level: 0 // Will be recalculated
+          }, { transaction: t });
           
-          // Reload the asset to get updated data
-          asset = await AssetHierarchy.unscoped().findByPk(id, { transaction: t });
+          asset = existingAsset;
+          console.log(`Updated asset: ${assetData.id} (${assetData.name})`);
         } else {
           // Create new asset
           asset = await AssetHierarchy.create({
             id: assetData.id,
-            companyId: assetData.companyId,
+            companyId: userCompanyId,
             name: assetData.name,
             description: assetData.description,
             cmmsInternalId: assetData.cmmsInternalId,
@@ -516,76 +290,47 @@ const processCSVAsync = async (fileUpload, fileBuffer, userCompanyId) => {
             make: assetData.make,
             manufacturer: assetData.manufacturer,
             serialNumber: assetData.serialNumber,
-            level: 0,
-            parent: null // Will be set in the next step
+            parent: assetData.parent,
+            level: 0 // Will be recalculated
           }, { transaction: t });
+          
+          console.log(`Created asset: ${assetData.id} (${assetData.name})`);
         }
-
-        assetMap.set(id, asset);
-        createdAssets.push(asset);
+        
+        processedAssets.push(asset);
       }
 
-      // Step 8: Update parent relationships
-      // We do this after all assets are created/updated to ensure all parents exist
-      for (const [id, assetData] of newAssetMap) {
-        const parentId = assetData.parent;
-        if (parentId && assetMap.has(parentId)) {
-          await AssetHierarchy.unscoped().update(
-            { parent: parentId },
-            { 
-              where: { id: id },
-              transaction: t 
-            }
-          );
-        }
-      }
-
-      // Step 9: Calculate levels based on parent relationships
-      const calculateLevels = async (asset, level) => {
-        await AssetHierarchy.unscoped().update(
-          { level: level }, 
-          { 
-            where: { id: asset.id },
-            transaction: t 
-          }
-        );
-        const children = await AssetHierarchy.unscoped().findAll({
-          where: { 
-            parent: asset.id,
-            companyId: userCompanyId,
-            deletedAt: null // Only process non-deleted children
-          },
-          attributes: ['id', 'parent'],
-          transaction: t
-        });
-        for (const child of children) {
-          await calculateLevels(child, level + 1);
-        }
-      };
-
-      // Start with root assets (those without parents) - only active assets
-      const rootAssets = await AssetHierarchy.findAll({
-        where: { 
-          parent: null, 
-          companyId: userCompanyId 
-        },
+      // Step 6: Clean up any assets that were restored but shouldn't exist
+      // This handles the case where restoring a parent also restored children not in CSV
+      const allCurrentAssets = await AssetHierarchy.findAll({
+        where: { companyId: userCompanyId },
         transaction: t
       });
-
-      for (const rootAsset of rootAssets) {
-        await calculateLevels(rootAsset, 0);
+      
+      const unwantedAssets = allCurrentAssets.filter(asset => !csvAssetIds.has(asset.id));
+      
+      for (const asset of unwantedAssets) {
+        await asset.destroy({ transaction: t });
+        console.log(`Cleaned up unwanted asset: ${asset.id} (${asset.name})`);
       }
 
-      // Fetch the final state of all assets with proper ordering (excluding soft-deleted)
+      // Step 7: Recalculate hierarchy levels
+      await recalculateHierarchyLevels(userCompanyId, t);
+
+      // Step 8: Get final asset list
       const finalAssets = await AssetHierarchy.findAll({
+        where: { companyId: userCompanyId },
         order: [['level', 'ASC'], ['name', 'ASC']],
-        where: {
-          companyId: userCompanyId
-        },
         transaction: t
       });
 
-      return { finalAssets, assetCount: newAssetMap.size };
+      return { 
+        finalAssets, 
+        assetCount: validatedAssets.length,
+        deletedCount: assetsToDelete.length + unwantedAssets.length,
+        createdCount: processedAssets.filter(asset => !existingAssetMap.has(asset.id)).length,
+        updatedCount: processedAssets.filter(asset => existingAssetMap.has(asset.id)).length
+      };
     });
 
     // Update file upload status to completed
@@ -594,7 +339,9 @@ const processCSVAsync = async (fileUpload, fileBuffer, userCompanyId) => {
       errorMessage: null
     });
 
-    console.log(`CSV processing completed successfully for file ${fileUpload.id}. Processed ${result.assetCount} assets.`);
+    console.log(`CSV processing completed successfully for file ${fileUpload.id}. ` +
+      `Processed ${result.assetCount} assets: ` +
+      `${result.createdCount} created, ${result.updatedCount} updated, ${result.deletedCount} deleted.`);
     
   } catch (error) {
     console.error('Error processing CSV:', error);
@@ -603,10 +350,8 @@ const processCSVAsync = async (fileUpload, fileBuffer, userCompanyId) => {
     let userFriendlyErrorMessage;
     
     if (error.name === 'ValidationError') {
-      // This is already a formatted validation error
       userFriendlyErrorMessage = error.message;
     } else {
-      // This is a system/processing error - make it user-friendly
       userFriendlyErrorMessage = generateSystemErrorReport(error);
     }
     
@@ -615,6 +360,226 @@ const processCSVAsync = async (fileUpload, fileBuffer, userCompanyId) => {
       status: 'error',
       errorMessage: userFriendlyErrorMessage
     });
+  }
+};
+
+/**
+ * Validate CSV data and build asset objects
+ * @param {Array} assets - Raw CSV data
+ * @returns {Object} { validatedAssets, idStrategy }
+ */
+const validateCSVData = async (assets) => {
+  const validationErrors = [];
+  const validatedAssets = [];
+
+  // Step 1: Determine ID strategy
+  const idsSet = new Set();
+  const cmmsInternalIdsSet = new Set();
+  const functionalLocationsSet = new Set();
+  let hasIds = false;
+  let idStrategy = null;
+
+  // Collect all potential ID fields
+  for (let i = 0; i < assets.length; i++) {
+    const asset = assets[i];
+    
+    if (asset['id'] && asset['id'].trim() !== '') {
+      hasIds = true;
+      idsSet.add(asset['id'].trim());
+    }
+    if (asset['cmms_internal_id'] && asset['cmms_internal_id'].trim() !== '') {
+      cmmsInternalIdsSet.add(asset['cmms_internal_id'].trim());
+    }
+    if (asset['functional_location'] && asset['functional_location'].trim() !== '') {
+      functionalLocationsSet.add(asset['functional_location'].trim());
+    }
+  }
+
+  // Determine ID strategy
+  if (hasIds) {
+    if (idsSet.size !== assets.length) {
+      validationErrors.push(`ID column has non-unique values: found ${idsSet.size} unique IDs for ${assets.length} rows`);
+    }
+    idStrategy = 'id';
+  } else {
+    const canUseCmmsId = cmmsInternalIdsSet.size === assets.length;
+    const canUseFunctionalLocation = functionalLocationsSet.size === assets.length;
+
+    if (canUseCmmsId && canUseFunctionalLocation) {
+      idStrategy = 'cmms_internal_id';
+    } else if (canUseCmmsId) {
+      idStrategy = 'cmms_internal_id';
+    } else if (canUseFunctionalLocation) {
+      idStrategy = 'functional_location';
+    } else {
+      validationErrors.push(`No valid unique ID column found: cmms_internal_id has ${cmmsInternalIdsSet.size} unique values, functional_location has ${functionalLocationsSet.size} unique values (need ${assets.length})`);
+    }
+  }
+
+  // Step 2: Build asset objects and validate
+  const nameToIdMap = new Map();
+  const rawParentRelationships = new Map();
+
+  for (let i = 0; i < assets.length; i++) {
+    const asset = assets[i];
+    const rowNumber = i + 1;
+
+    // Validate required name field
+    if (!asset['name'] || asset['name'].trim() === '') {
+      validationErrors.push(`Missing name on row ${rowNumber}`);
+      continue;
+    }
+
+    // Determine asset ID based on strategy
+    let assetId;
+    switch (idStrategy) {
+      case 'id':
+        assetId = asset['id'].trim();
+        break;
+      case 'cmms_internal_id':
+        if (!asset['cmms_internal_id'] || asset['cmms_internal_id'].trim() === '') {
+          validationErrors.push(`Missing cmms_internal_id on row ${rowNumber}`);
+          continue;
+        }
+        assetId = asset['cmms_internal_id'].trim();
+        break;
+      case 'functional_location':
+        if (!asset['functional_location'] || asset['functional_location'].trim() === '') {
+          validationErrors.push(`Missing functional_location on row ${rowNumber}`);
+          continue;
+        }
+        assetId = asset['functional_location'].trim();
+        break;
+      default:
+        validationErrors.push(`Unable to determine ID strategy on row ${rowNumber}`);
+        continue;
+    }
+
+    // Build asset data with defaults
+    const name = asset['name'].trim();
+    const cmmsInternalId = asset['cmms_internal_id']?.trim() || assetId;
+    const functionalLocation = asset['functional_location']?.trim() || assetId;
+    const functionalLocationDesc = asset['functional_location_desc']?.trim() || name;
+
+    nameToIdMap.set(name, assetId);
+
+    // Store parent relationship for later resolution
+    const rawParentId = asset['parent_id']?.trim() || null;
+    if (rawParentId) {
+      rawParentRelationships.set(assetId, rawParentId);
+    }
+
+    const assetData = {
+      id: assetId,
+      name: name,
+      description: asset['description']?.trim() || null,
+      cmmsInternalId: cmmsInternalId,
+      functionalLocation: functionalLocation,
+      functionalLocationDesc: functionalLocationDesc,
+      functionalLocationLongDesc: asset['functional_location_long_desc']?.trim() || functionalLocationDesc,
+      maintenancePlant: asset['maintenance_plant']?.trim() || 'Default Plant',
+      cmmsSystem: asset['cmms_system']?.trim() || 'Default System',
+      objectType: asset['object_type']?.trim() || 'Equipment',
+      systemStatus: asset['system_status']?.trim() || 'Active',
+      make: asset['make']?.trim() || null,
+      manufacturer: asset['manufacturer']?.trim() || null,
+      serialNumber: asset['serial_number']?.trim() || null,
+      parent: null // Will be resolved next
+    };
+
+    validatedAssets.push(assetData);
+  }
+
+  // Step 3: Resolve parent relationships
+  const assetMap = new Map(validatedAssets.map(asset => [asset.id, asset]));
+  
+  for (const [childId, rawParentId] of rawParentRelationships) {
+    let resolvedParentId = null;
+
+    // Check if parent is an ID or name
+    if (assetMap.has(rawParentId)) {
+      resolvedParentId = rawParentId;
+    } else if (nameToIdMap.has(rawParentId)) {
+      resolvedParentId = nameToIdMap.get(rawParentId);
+    }
+
+    if (resolvedParentId) {
+      const childAsset = assetMap.get(childId);
+      childAsset.parent = resolvedParentId;
+    } else {
+      const childAsset = assetMap.get(childId);
+      validationErrors.push(`Parent '${rawParentId}' not found for asset '${childAsset.name}' (${childId})`);
+    }
+  }
+
+  // Step 4: Check for circular dependencies
+  const detectCycle = (assetId, visited = new Set(), path = new Set()) => {
+    if (path.has(assetId)) return true;
+    if (visited.has(assetId)) return false;
+
+    visited.add(assetId);
+    path.add(assetId);
+
+    const asset = assetMap.get(assetId);
+    if (asset && asset.parent && detectCycle(asset.parent, visited, path)) {
+      return true;
+    }
+
+    path.delete(assetId);
+    return false;
+  };
+
+  const visitedGlobal = new Set();
+  for (const asset of validatedAssets) {
+    if (!visitedGlobal.has(asset.id) && detectCycle(asset.id, visitedGlobal)) {
+      validationErrors.push(`Cyclic dependency detected with asset '${asset.name}' (${asset.id})`);
+    }
+  }
+
+  // Throw validation errors if any
+  if (validationErrors.length > 0) {
+    const errorReport = generateValidationErrorReport(validationErrors, assets.length, idStrategy);
+    const validationError = new Error(errorReport);
+    validationError.name = 'ValidationError';
+    throw validationError;
+  }
+
+  return { validatedAssets, idStrategy };
+};
+
+/**
+ * Recalculate hierarchy levels for all assets in a company
+ * @param {number} userCompanyId - Company ID
+ * @param {object} transaction - Database transaction
+ */
+const recalculateHierarchyLevels = async (userCompanyId, transaction) => {
+  const calculateLevels = async (asset, level) => {
+    await asset.update({ level }, { transaction });
+    
+    const children = await AssetHierarchy.findAll({
+      where: { 
+        parent: asset.id,
+        companyId: userCompanyId 
+      },
+      transaction
+    });
+    
+    for (const child of children) {
+      await calculateLevels(child, level + 1);
+    }
+  };
+
+  // Start with root assets (no parent)
+  const rootAssets = await AssetHierarchy.findAll({
+    where: { 
+      parent: null, 
+      companyId: userCompanyId 
+    },
+    transaction
+  });
+
+  for (const rootAsset of rootAssets) {
+    await calculateLevels(rootAsset, 0);
   }
 };
 
