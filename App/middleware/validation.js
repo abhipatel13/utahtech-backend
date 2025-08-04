@@ -157,6 +157,24 @@ exports.validateIdParam = (paramName = 'id') => {
 };
 
 /**
+ * Middleware to validate UUID parameter
+ * @param {string} paramName - Parameter name (default: 'id')
+ * @returns {function} Express middleware function
+ */
+exports.validateUuidParam = (paramName = 'id') => {
+  return (req, res, next) => {
+    const id = req.params[paramName];
+    const uuidRegex = /^[0-9a-f]{8}-[0-9a-f]{4}-[1-5][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i;
+    
+    if (!id || !uuidRegex.test(id)) {
+      const error = errorResponse(`Invalid ${paramName} parameter`, 400);
+      return res.status(error.statusCode).json(error);
+    }
+    next();
+  };
+};
+
+/**
  * Middleware to validate date and time fields
  * @returns {function} Express middleware function
  */

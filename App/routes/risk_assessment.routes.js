@@ -20,7 +20,7 @@ router.use(ensureCompanyAccess('risk_assessments'));
 // Create a new Risk Assessment
 router.post("/", 
   requireJsonBody(),
-  validateRequired(['date', 'time', 'scopeOfWork', 'trainedWorkforce', 'individuals', 'supervisor', 'location']),
+  validateRequired(['date', 'time', 'scopeOfWork', 'individuals', 'supervisor', 'location']),
   validateDateTime(),
   validateArray('risks', true),
   sanitizeInputs(['scopeOfWork', 'individuals', 'supervisor', 'location']),

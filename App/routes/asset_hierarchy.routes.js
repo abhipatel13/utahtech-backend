@@ -8,6 +8,7 @@ const {
   validateRequired,
   requireRole,
   validateIdParam,
+  validateUuidParam,
   requireJsonBody,
   sanitizeInputs,
   validateArray
@@ -75,6 +76,13 @@ router.get('/',
 router.get('/upload-history',
   requireRole(['admin', 'superuser']),
   assetHierarchyController.getUploadHistory
+);
+
+// Get upload status by upload ID
+router.get('/upload-status/:uploadId',
+  requireRole(['admin', 'superuser']),
+  validateUuidParam('uploadId'),
+  assetHierarchyController.getUploadStatus
 );
 
 // Get single asset by ID

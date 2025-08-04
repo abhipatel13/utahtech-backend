@@ -8,7 +8,6 @@ const AssetHierarchy = db.asset_hierarchy;
 const TaskHazards = db.task_hazards;
 const FileUpload = db.file_uploads;
 const User = db.user;
-const RiskAssessments = db.risk_assessments;
 
 /**
  * Create and Save new Asset Hierarchy entries
@@ -116,34 +115,95 @@ exports.create = async (req, res) => {
  * @param {object} req - Express request object
  * @param {object} res - Express response object
  */
-exports.uploadCSV = async (req, res) => {
-  try {
-    // Get user's company ID
-    const userCompanyId = req.user.company_id || req.user.company?.id;
-    if (!userCompanyId) {
-      const response = errorResponse("User's company information is missing", 400);
-      return sendResponse(res, response);
-    }
+/**
+ * Generate user-friendly error messages for CSV processing failures
+ * @param {Array} validationErrors - Array of validation error messages
+ * @param {number} totalRows - Total number of rows in CSV
+ * @param {string} idStrategy - The ID strategy determined for this CSV
+ */
+const generateValidationErrorReport = (validationErrors, totalRows, idStrategy) => {
+  const errorCount = validationErrors.length;
+  const maxErrorsToShow = 10; // Limit displayed errors to keep message concise
+  
+  let report = `Found ${errorCount} validation error(s) in ${totalRows} rows:\n\n`;
+  
+  // Show first few errors with line numbers
+  const errorsToShow = validationErrors.slice(0, maxErrorsToShow);
+  errorsToShow.forEach((error, index) => {
+    report += `• ${error}\n`;
+  });
+  
+  if (validationErrors.length > maxErrorsToShow) {
+    report += `\n... and ${validationErrors.length - maxErrorsToShow} more errors.\n`;
+  }
+  
+  report += `\nUsing ID strategy: ${idStrategy || 'auto-detected'}`;
+  return report;
+};
 
-    if (!req.file) {
-      const response = errorResponse('No file uploaded', 400);
-      return sendResponse(res, response);
+/**
+ * Generate user-friendly error messages for system/processing errors
+ * @param {Error} error - The error that occurred
+ */
+const generateSystemErrorReport = (error) => {
+  const errorType = error.name || 'UnknownError';
+  const errorMessage = error.message || 'An unexpected error occurred';
+  
+  // Handle specific error types with actionable messages
+  if (errorType === 'SequelizeUniqueConstraintError') {
+    // Extract field information from constraint error
+    if (errorMessage.includes('PRIMARY')) {
+      return 'Duplicate asset IDs found in CSV. Each asset must have a unique ID.';
+    } else if (errorMessage.includes('cmms_internal_id')) {
+      return 'Duplicate CMMS Internal IDs found in CSV. Each asset must have a unique CMMS Internal ID.';
+    } else if (errorMessage.includes('functional_location')) {
+      return 'Duplicate Functional Locations found in CSV. Each asset must have a unique Functional Location.';
     }
+    return 'Duplicate values found in CSV. Check that all required fields have unique values.';
+  }
+  
+  if (errorType === 'SequelizeForeignKeyConstraintError') {
+    return 'Invalid parent reference found. Ensure all parent IDs exist in the CSV or database.';
+  }
+  
+  if (errorMessage.includes('CSV file is empty')) {
+    return 'CSV file is empty or contains no data rows.';
+  }
+  
+  if (errorMessage.includes('parse') || errorMessage.includes('CSV')) {
+    return 'CSV format error. Check file format, encoding (use UTF-8), and ensure proper column headers.';
+  }
+  
+  if (errorMessage.includes('timeout') || errorMessage.includes('ETIMEDOUT')) {
+    return 'Processing timeout. Try uploading a smaller file or split large files into multiple uploads.';
+  }
+  
+  if (errorMessage.includes('memory') || errorMessage.includes('ENOMEM')) {
+    return 'File too large to process. Split the file into smaller parts (recommended: under 1000 rows per file).';
+  }
+  
+  if (errorMessage.includes('permission') || errorMessage.includes('access')) {
+    return 'Permission denied. Contact your administrator to verify your upload permissions.';
+  }
+  
+  // For unknown errors, provide the basic error message but make it more user-friendly
+  return `Processing error: ${errorMessage.split('\n')[0]}. Contact support if this persists.`;
+};
+
+/**
+ * Process CSV file asynchronously
+ * @param {object} fileUpload - File upload record
+ * @param {Buffer} fileBuffer - CSV file buffer
+ * @param {number} userCompanyId - User's company ID
+ */
+const processCSVAsync = async (fileUpload, fileBuffer, userCompanyId) => {
+  try {
+    // Update status to processing
+    await fileUpload.update({ status: 'processing' });
 
     const result = await db.sequelize.transaction(async (t) => {
-      // Create file upload record
-      const fileUpload = await FileUpload.create({
-        fileName: req.file.filename || `${Date.now()}-${sanitizeInput(req.file.originalname)}`,
-        originalName: sanitizeInput(req.file.originalname),
-        fileType: req.file.mimetype,
-        fileSize: req.file.size,
-        uploaderId: req.user.id,
-        companyId: userCompanyId,
-        status: 'uploading'
-      }, { transaction: t });
-
       // Parse CSV from buffer directly
-      const csvString = req.file.buffer.toString('utf-8');
+      const csvString = fileBuffer.toString('utf-8');
       const assets = csv.parse(csvString, {
         columns: true,
         skip_empty_lines: true
@@ -161,83 +221,215 @@ exports.uploadCSV = async (req, res) => {
 
       const referencedAssetIds = new Set(referencedAssets.map(a => a.assetHierarchyId));
 
-      // Get all existing assets
-      const existingAssets = await AssetHierarchy.findAll({
+      // Get all existing assets (including soft-deleted ones)
+      const existingAssets = await AssetHierarchy.unscoped().findAll({
         where: {
           companyId: userCompanyId
         },
+        paranoid: false,
         transaction: t
       });
 
       const existingAssetMap = new Map(existingAssets.map(asset => [asset.id, asset]));
+      const deletedAssetIds = new Set(existingAssets.filter(asset => asset.deletedAt !== null).map(asset => asset.id));
 
       // Create a map for the new assets from CSV and validate required columns
       const newAssetMap = new Map();
       const validationErrors = [];
 
+      if (assets.length === 0) {
+        throw new Error("CSV file is empty or contains no valid data rows.");
+      }
+
+      // Step 1: Determine ID strategy and validate consistency
+      const idsSet = new Set();
+      const cmmsInternalIdsSet = new Set();
+      const functionalLocationsSet = new Set();
+      let hasIds = false;
+      let idStrategy = null; // 'id', 'cmms_internal_id', or 'functional_location'
+
+      // First pass: collect all potential ID fields
       for (let i = 0; i < assets.length; i++) {
         const asset = assets[i];
-        const assetIndex = i + 1; // 1-based index for user-friendly error messages
+        const rowNumber = i + 1;
 
-        // Check all required columns from the asset_hierarchy model
-        const name = asset['name'];
-        const functionalLocation = asset['functional_location'];
-        const functionalLocationDesc = asset['functional_location_desc'];
-        const cmmsInternalId = asset['cmms_internal_id'];
-
-        // Validate required fields
-        if (!functionalLocation || functionalLocation.trim() === '') {
-          validationErrors.push(`Row ${assetIndex}: 'functional_location' is required and cannot be empty`);
+        if (asset['id'] && asset['id'].trim() !== '') {
+          hasIds = true;
+          idsSet.add(asset['id'].trim());
         }
-
-        if (!name || name.trim() === '') {
-          validationErrors.push(`Row ${assetIndex}: 'name' is required and cannot be empty`);
+        if (asset['cmms_internal_id'] && asset['cmms_internal_id'].trim() !== '') {
+          cmmsInternalIdsSet.add(asset['cmms_internal_id'].trim());
         }
-
-        if (!functionalLocationDesc || functionalLocationDesc.trim() === '') {
-          validationErrors.push(`Row ${assetIndex}: 'functional_location_desc' is required and cannot be empty`);
+        if (asset['functional_location'] && asset['functional_location'].trim() !== '') {
+          functionalLocationsSet.add(asset['functional_location'].trim());
         }
+      }
 
-        if (!cmmsInternalId || cmmsInternalId.trim() === '') {
-          validationErrors.push(`Row ${assetIndex}: 'cmms_internal_id' is required and cannot be empty`);
+      // Determine and validate ID strategy
+      if (hasIds) {
+        // Check if ALL rows have IDs and they are unique
+        if (idsSet.size !== assets.length) {
+          validationErrors.push(`ID column has non-unique values: found ${idsSet.size} unique IDs for ${assets.length} rows`);
         }
+        idStrategy = 'id';
+      } else {
+        // No IDs provided, determine alternative strategy
+        const canUseCmmsId = cmmsInternalIdsSet.size === assets.length;
+        const canUseFunctionalLocation = functionalLocationsSet.size === assets.length;
 
-        // If we have validation errors, skip adding this asset to the map
-        if (!functionalLocation || functionalLocation.trim() === '' ||
-          !name || name.trim() === '' ||
-          !functionalLocationDesc || functionalLocationDesc.trim() === '' ||
-          !cmmsInternalId || cmmsInternalId.trim() === '') {
+        if (canUseCmmsId && canUseFunctionalLocation) {
+          // Both are unique and complete, prefer cmms_internal_id
+          idStrategy = 'cmms_internal_id';
+        } else if (canUseCmmsId) {
+          idStrategy = 'cmms_internal_id';
+        } else if (canUseFunctionalLocation) {
+          idStrategy = 'functional_location';
+        } else {
+          validationErrors.push(`No valid unique ID column found: cmms_internal_id has ${cmmsInternalIdsSet.size} unique values, functional_location has ${functionalLocationsSet.size} unique values (need ${assets.length})`);
+        }
+      }
+
+      // Step 2: Validate each row and build asset map
+      const nameToIdMap = new Map(); // Track name -> last seen ID mapping
+      const rawParentRelationships = new Map(); // Track raw parent-child relationships before resolution
+
+      for (let i = 0; i < assets.length; i++) {
+        const asset = assets[i];
+        const rowNumber = i + 1;
+
+        // Validate required name field
+        if (!asset['name'] || asset['name'].trim() === '') {
+          validationErrors.push(`Missing name on row ${rowNumber}`);
           continue;
         }
-        const id = asset['id'] || `${asset.cmmsInternalId}-${Date.now()}`;
 
-        newAssetMap.set(id, {
-          id: id,
-          companyId: req.user.company.id,
+        // Determine the ID for this asset based on strategy
+        let assetId;
+        switch (idStrategy) {
+          case 'id':
+            assetId = asset['id'].trim();
+            break;
+          case 'cmms_internal_id':
+            if (!asset['cmms_internal_id'] || asset['cmms_internal_id'].trim() === '') {
+              validationErrors.push(`Missing cmms_internal_id on row ${rowNumber}`);
+              continue;
+            }
+            assetId = asset['cmms_internal_id'].trim();
+            break;
+          case 'functional_location':
+            if (!asset['functional_location'] || asset['functional_location'].trim() === '') {
+              validationErrors.push(`Missing functional_location on row ${rowNumber}`);
+              continue;
+            }
+            assetId = asset['functional_location'].trim();
+            break;
+          default:
+            validationErrors.push(`Unable to determine ID strategy on row ${rowNumber}`);
+            continue;
+        }
+
+        // Fill in missing fields with intelligent defaults
+        const name = asset['name'].trim();
+        const cmmsInternalId = asset['cmms_internal_id']?.trim() || assetId;
+        const functionalLocation = asset['functional_location']?.trim() || assetId;
+        const functionalLocationDesc = asset['functional_location_desc']?.trim() || name;
+
+        // Update name-to-ID mapping (last occurrence wins)
+        nameToIdMap.set(name, assetId);
+
+        // Store raw parent relationship if specified
+        const rawParentId = asset['parent_id']?.trim() || null;
+        if (rawParentId) {
+          rawParentRelationships.set(assetId, rawParentId);
+        }
+
+        // Build asset data
+        const assetData = {
+          id: assetId,
+          companyId: userCompanyId,
           name: name,
-          description: asset['description'] || null,
+          description: asset['description']?.trim() || null,
           cmmsInternalId: cmmsInternalId,
           functionalLocation: functionalLocation,
           functionalLocationDesc: functionalLocationDesc,
-          functionalLocationLongDesc: asset['functional_location_long_desc'] || functionalLocationDesc,
-          maintenancePlant: asset['maintenance_plant'] || 'Default Plant',
-          cmmsSystem: asset['cmms_system'] || 'Default System',
-          objectType: asset['object_type'] || 'Equipment',
-          systemStatus: asset['system_status'] || 'Active',
-          make: asset['make'] || null,
-          manufacturer: asset['manufacturer'] || null,
-          serialNumber: asset['serial_number'] || null,
-          parent: asset['parent_id'] || null,
+          functionalLocationLongDesc: asset['functional_location_long_desc']?.trim() || functionalLocationDesc,
+          maintenancePlant: asset['maintenance_plant']?.trim() || 'Default Plant',
+          cmmsSystem: asset['cmms_system']?.trim() || 'Default System',
+          objectType: asset['object_type']?.trim() || 'Equipment',
+          systemStatus: asset['system_status']?.trim() || 'Active',
+          make: asset['make']?.trim() || null,
+          manufacturer: asset['manufacturer']?.trim() || null,
+          serialNumber: asset['serial_number']?.trim() || null,
+          parent: null, // Will be resolved in next step
           level: 0
-        });
+        };
+
+        newAssetMap.set(assetId, assetData);
+      }
+
+      // Step 3: Resolve parent relationships (ID or name lookup)
+      const resolvedParentRelationships = new Map();
+
+      for (const [childId, rawParentId] of rawParentRelationships) {
+        let resolvedParentId = null;
+
+        // First check if rawParentId is a direct ID match
+        if (newAssetMap.has(rawParentId)) {
+          resolvedParentId = rawParentId;
+        } else if (nameToIdMap.has(rawParentId)) {
+          // If not a direct ID, check if it's a name that maps to an ID
+          resolvedParentId = nameToIdMap.get(rawParentId);
+        }
+
+        if (resolvedParentId) {
+          resolvedParentRelationships.set(childId, resolvedParentId);
+          // Update the asset data with resolved parent
+          const assetData = newAssetMap.get(childId);
+          assetData.parent = resolvedParentId;
+        } else {
+          const childAsset = newAssetMap.get(childId);
+          validationErrors.push(`Parent '${rawParentId}' not found for asset '${childAsset.name}' (${childId})`);
+        }
+      }
+
+      // Step 4: Validate for cyclic parent relationships
+      const detectCycle = (assetId, visited = new Set(), path = new Set()) => {
+        if (path.has(assetId)) {
+          return true; // Cycle detected
+        }
+        if (visited.has(assetId)) {
+          return false; // Already processed this branch
+        }
+
+        visited.add(assetId);
+        path.add(assetId);
+
+        const parentId = resolvedParentRelationships.get(assetId);
+        if (parentId && detectCycle(parentId, visited, path)) {
+          return true;
+        }
+
+        path.delete(assetId);
+        return false;
+      };
+
+      const visitedGlobal = new Set();
+      for (const assetId of newAssetMap.keys()) {
+        if (!visitedGlobal.has(assetId) && detectCycle(assetId, visitedGlobal)) {
+          const assetData = newAssetMap.get(assetId);
+          validationErrors.push(`Cyclic dependency detected with asset '${assetData.name}' (${assetId})`);
+        }
       }
 
       // If we found validation errors, throw an error with all issues
       if (validationErrors.length > 0) {
-        throw new Error(`CSV validation failed:\n${validationErrors.join('\n')}`);
+        const errorReport = generateValidationErrorReport(validationErrors, assets.length, idStrategy);
+        const validationError = new Error(errorReport);
+        validationError.name = 'ValidationError';
+        throw validationError;
       }
 
-      // Step 1: Nullify all parent relationships first
+      // Step 5: Nullify all parent relationships first
       await AssetHierarchy.update(
         { parent: null },
         {
@@ -246,11 +438,12 @@ exports.uploadCSV = async (req, res) => {
         }
       );
 
-      // Step 2: Delete assets that are not in the new set and not referenced
+      // Step 6: Delete assets that are not in the new set and not referenced
       // We need to do this in a way that respects the hierarchy
+      // Only consider non-deleted assets for deletion (don't delete already soft-deleted assets)
       const assetsToDelete = [];
       for (const [id, asset] of existingAssetMap) {
-        if (!newAssetMap.has(id) && !referencedAssetIds.has(id)) {
+        if (!newAssetMap.has(id) && !referencedAssetIds.has(id) && !deletedAssetIds.has(id)) {
           assetsToDelete.push(id);
         }
       }
@@ -264,7 +457,7 @@ exports.uploadCSV = async (req, res) => {
         });
       }
 
-      // Step 3: Update or create assets
+      // Step 7: Update or create assets (handle soft-deleted assets properly)
       const assetMap = new Map();
       const createdAssets = [];
 
@@ -272,9 +465,9 @@ exports.uploadCSV = async (req, res) => {
         let asset;
 
         if (existingAssetMap.has(id)) {
-          // Update existing asset
+          // Update existing asset (including restoring soft-deleted ones)
           asset = existingAssetMap.get(id);
-          await asset.update({
+          const updateData = {
             name: assetData.name,
             description: assetData.description,
             cmmsInternalId: assetData.cmmsInternalId,
@@ -288,8 +481,23 @@ exports.uploadCSV = async (req, res) => {
             make: assetData.make,
             manufacturer: assetData.manufacturer,
             serialNumber: assetData.serialNumber,
-            level: 0 // Will be recalculated later
-          }, { transaction: t });
+            level: 0, // Will be recalculated later
+            parent: null // Reset parent, will be set later
+          };
+
+          // If asset was soft-deleted, restore it
+          if (deletedAssetIds.has(id)) {
+            updateData.deletedAt = null;
+          }
+
+          // Use unscoped update to handle soft-deleted records
+          await AssetHierarchy.unscoped().update(updateData, {
+            where: { id: id },
+            transaction: t
+          });
+          
+          // Reload the asset to get updated data
+          asset = await AssetHierarchy.unscoped().findByPk(id, { transaction: t });
         } else {
           // Create new asset
           asset = await AssetHierarchy.create({
@@ -317,21 +525,36 @@ exports.uploadCSV = async (req, res) => {
         createdAssets.push(asset);
       }
 
-      // Step 4: Update parent relationships
+      // Step 8: Update parent relationships
       // We do this after all assets are created/updated to ensure all parents exist
       for (const [id, assetData] of newAssetMap) {
-        const asset = await AssetHierarchy.findByPk(id, { attributes: ['id', 'parent'], transaction: t });
         const parentId = assetData.parent;
         if (parentId && assetMap.has(parentId)) {
-          await asset.setParentId(parentId, { transaction: t });
+          await AssetHierarchy.unscoped().update(
+            { parent: parentId },
+            { 
+              where: { id: id },
+              transaction: t 
+            }
+          );
         }
       }
 
-      // Step 5: Calculate levels based on parent relationships
+      // Step 9: Calculate levels based on parent relationships
       const calculateLevels = async (asset, level) => {
-        await asset.update({ level: level }, { transaction: t });
-        const children = await AssetHierarchy.findAll({
-          where: { parent: asset.id },
+        await AssetHierarchy.unscoped().update(
+          { level: level }, 
+          { 
+            where: { id: asset.id },
+            transaction: t 
+          }
+        );
+        const children = await AssetHierarchy.unscoped().findAll({
+          where: { 
+            parent: asset.id,
+            companyId: userCompanyId,
+            deletedAt: null // Only process non-deleted children
+          },
           attributes: ['id', 'parent'],
           transaction: t
         });
@@ -340,9 +563,12 @@ exports.uploadCSV = async (req, res) => {
         }
       };
 
-      // Start with root assets (those without parents)
+      // Start with root assets (those without parents) - only active assets
       const rootAssets = await AssetHierarchy.findAll({
-        where: { parent: null, companyId: req.user.company.id },
+        where: { 
+          parent: null, 
+          companyId: userCompanyId 
+        },
         transaction: t
       });
 
@@ -350,33 +576,91 @@ exports.uploadCSV = async (req, res) => {
         await calculateLevels(rootAsset, 0);
       }
 
-      // Fetch the final state of all assets with proper ordering
+      // Fetch the final state of all assets with proper ordering (excluding soft-deleted)
       const finalAssets = await AssetHierarchy.findAll({
         order: [['level', 'ASC'], ['name', 'ASC']],
         where: {
-          companyId: req.user.company.id
+          companyId: userCompanyId
         },
         transaction: t
       });
 
-      // Update file upload status to completed
-      await fileUpload.update({
-        status: 'completed'
-      }, { transaction: t });
-
-      return { finalAssets, fileUpload };
+      return { finalAssets, assetCount: newAssetMap.size };
     });
 
-    const response = successResponse('CSV processed successfully', {
-      assets: result.finalAssets,
-      fileUpload: result.fileUpload
+    // Update file upload status to completed
+    await fileUpload.update({
+      status: 'completed',
+      errorMessage: null
+    });
+
+    console.log(`CSV processing completed successfully for file ${fileUpload.id}. Processed ${result.assetCount} assets.`);
+    
+  } catch (error) {
+    console.error('Error processing CSV:', error);
+    
+    // Generate user-friendly error message
+    let userFriendlyErrorMessage;
+    
+    if (error.name === 'ValidationError') {
+      // This is already a formatted validation error
+      userFriendlyErrorMessage = error.message;
+    } else {
+      // This is a system/processing error - make it user-friendly
+      userFriendlyErrorMessage = generateSystemErrorReport(error);
+    }
+    
+    // Update file upload status to error
+    await fileUpload.update({
+      status: 'error',
+      errorMessage: userFriendlyErrorMessage
+    });
+  }
+};
+
+exports.uploadCSV = async (req, res) => {
+  try {
+    // Get user's company ID
+    const userCompanyId = req.user.company_id || req.user.company?.id;
+    if (!userCompanyId) {
+      const response = errorResponse("User's company information is missing", 400);
+      return sendResponse(res, response);
+    }
+
+    if (!req.file) {
+      const response = errorResponse('No file uploaded', 400);
+      return sendResponse(res, response);
+    }
+
+    // Create file upload record immediately
+    const fileUpload = await FileUpload.create({
+      fileName: req.file.filename || `${Date.now()}-${sanitizeInput(req.file.originalname)}`,
+      originalName: sanitizeInput(req.file.originalname),
+      fileType: req.file.mimetype,
+      fileSize: req.file.size,
+      uploaderId: req.user.id,
+      companyId: userCompanyId,
+      status: 'uploading'
+    });
+
+    // Send immediate response
+    const response = successResponse('CSV upload started successfully', {
+      uploadId: fileUpload.id,
+      fileName: fileUpload.originalName,
+      status: 'processing',
+      message: 'Your CSV file is being processed in the background. You will be notified when processing is complete.'
     });
     sendResponse(res, response);
+
+    // Process CSV asynchronously (don't await)
+    setImmediate(() => {
+      processCSVAsync(fileUpload, req.file.buffer, userCompanyId);
+    });
 
   } catch (error) {
     console.error('Error in uploadCSV:', error);
     const response = errorResponse(
-      'Error processing CSV',
+      'Error initiating CSV upload',
       400,
       error.message
     );
@@ -493,15 +777,35 @@ exports.getUploadHistory = async (req, res) => {
     });
 
     // Format the response data
-    const formattedUploads = uploads.map(upload => ({
-      id: upload.id,
-      fileName: upload.originalName,
-      fileType: upload.fileType,
-      fileSize: upload.fileSize,
-      status: upload.status,
-      uploadedBy: upload.uploadedBy?.name || 'Unknown',
-      uploadedAt: upload.createdAt
-    }));
+    const formattedUploads = uploads.map(upload => {
+      // Extract error summary for display
+      let errorSummary = null;
+      if (upload.errorMessage) {
+        // Extract first line as summary, which should be user-friendly now
+        const firstLine = upload.errorMessage.split('\n')[0];
+        if (firstLine.includes('Found') && firstLine.includes('validation error')) {
+          // Extract error count for validation errors
+          const errorCount = (firstLine.match(/Found (\d+) validation error/)?.[1] || 'unknown');
+          errorSummary = `${errorCount} validation error(s)`;
+        } else {
+          // For system errors, use the first line (should be concise now)
+          errorSummary = firstLine.length > 80 ? firstLine.substring(0, 80) + '...' : firstLine;
+        }
+      }
+
+      return {
+        id: upload.id,
+        fileName: upload.originalName,
+        fileType: upload.fileType,
+        fileSize: upload.fileSize,
+        status: upload.status,
+        errorMessage: upload.errorMessage, // Full error message
+        errorSummary: errorSummary, // Short summary for display
+        uploadedBy: upload.uploadedBy?.name || 'Unknown',
+        uploadedAt: upload.createdAt,
+        updatedAt: upload.updatedAt
+      };
+    });
 
     const response = successResponse("Upload history retrieved successfully", formattedUploads);
     sendResponse(res, response);
@@ -509,6 +813,84 @@ exports.getUploadHistory = async (req, res) => {
     console.error('Error fetching upload history:', error);
     const response = errorResponse(
       error.message || "Some error occurred while retrieving upload history.",
+      500
+    );
+    sendResponse(res, response);
+  }
+};
+
+/**
+ * Get the status of a specific upload
+ * @param {object} req - Express request object
+ * @param {object} res - Express response object
+ */
+exports.getUploadStatus = async (req, res) => {
+  try {
+    // Get user's company ID
+    const userCompanyId = req.user.company_id || req.user.company?.id;
+    if (!userCompanyId) {
+      const response = errorResponse("User's company information is missing", 400);
+      return sendResponse(res, response);
+    }
+
+    const uploadId = req.params.uploadId;
+    if (!uploadId) {
+      const response = errorResponse("Upload ID is required", 400);
+      return sendResponse(res, response);
+    }
+
+    const upload = await FileUpload.findOne({
+      where: {
+        id: uploadId,
+        companyId: userCompanyId
+      },
+      include: [{
+        model: User,
+        as: 'uploadedBy',
+        attributes: ['id', 'name', 'email']
+      }]
+    });
+
+    if (!upload) {
+      const response = errorResponse("Upload not found", 404);
+      return sendResponse(res, response);
+    }
+
+    // Extract error summary for display
+    let errorSummary = null;
+    if (upload.errorMessage) {
+      // Extract first line as summary, which should be user-friendly now
+      const firstLine = upload.errorMessage.split('\n')[0];
+      if (firstLine.includes('Found') && firstLine.includes('validation error')) {
+        // Extract error count for validation errors
+        const errorCount = (firstLine.match(/Found (\d+) validation error/)?.[1] || 'unknown');
+        errorSummary = `${errorCount} validation error(s)`;
+      } else {
+        // For system errors, use the first line (should be concise now)
+        errorSummary = firstLine.length > 80 ? firstLine.substring(0, 80) + '...' : firstLine;
+      }
+    }
+
+    // Format the response data
+    const uploadStatus = {
+      id: upload.id,
+      fileName: upload.originalName,
+      fileType: upload.fileType,
+      fileSize: upload.fileSize,
+      status: upload.status,
+      errorMessage: upload.errorMessage, // Full detailed error message
+      errorSummary: errorSummary, // Short summary for display
+      uploadedBy: upload.uploadedBy?.name || 'Unknown',
+      uploadedAt: upload.createdAt,
+      updatedAt: upload.updatedAt
+    };
+
+    const response = successResponse("Upload status retrieved successfully", uploadStatus);
+    sendResponse(res, response);
+  } catch (error) {
+    console.error('Error fetching upload status:', error);
+    const response = errorResponse(
+      error.message || "Some error occurred while retrieving upload status.",
       500
     );
     sendResponse(res, response);
