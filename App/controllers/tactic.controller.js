@@ -77,6 +77,39 @@ exports.findAll = async (req, res) => {
 };
 
 /**
+ * Retrieve all Tactics from all companies (Universal User Access)
+ * Bypasses company access restrictions for universal users
+ */
+exports.findAllUniversal = async (req, res) => {
+  try {
+    // Check if user is a universal user
+    if (req.user.role !== 'universal_user') {
+      return sendResponse(res, errorResponse(
+        'Access denied. Only universal users can access all tactics.',
+        403
+      ));
+    }
+    
+    // Fetch tactics from all companies
+    const tactics = await db.tactics.findAll({
+      // No company filter - get all tactics
+    });
+    
+    sendResponse(res, successResponse(
+      'All Tactics retrieved successfully for universal user',
+      tactics
+    ));
+    
+  } catch (error) {
+    console.error('Error retrieving all tactics:', error);
+    sendResponse(res, errorResponse(
+      error.message || 'Some error occurred while retrieving all tactics.',
+      500
+    ));
+  }
+};
+
+/**
  * Retrieve a single Tactic with id
  */
 exports.findOne = async (req, res) => {

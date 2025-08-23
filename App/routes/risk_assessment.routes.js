@@ -15,6 +15,11 @@ const {
 
 // Apply middleware to all routes
 router.use(auth);
+
+// Universal user route - bypasses company access
+router.get("/universal", risk_assessments.findAllUniversal);
+
+// Apply company access middleware to other routes
 router.use(ensureCompanyAccess('risk_assessments'));
 
 // Create a new Risk Assessment

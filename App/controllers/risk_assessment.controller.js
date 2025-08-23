@@ -312,6 +312,40 @@ exports.findAll = async (req, res) => {
 };
 
 /**
+ * Retrieve all Risk Assessments from all companies (Universal User Access)
+ * Bypasses company access restrictions for universal users
+ */
+exports.findAllUniversal = async (req, res) => {
+  try {
+    // Check if user is a universal user
+    if (req.user.role !== 'universal_user') {
+      return sendResponse(res, errorResponse(
+        'Access denied. Only universal users can access all risk assessments.',
+        403
+      ));
+    }
+    
+    // Fetch risk assessments from all companies with optimized query
+    const riskAssessments = await RiskAssessment.findAll({});
+
+    // Format for frontend response
+    const formattedRiskAssessments = riskAssessments.map(formatRiskAssessment);
+
+    sendResponse(res, successResponse(
+      "All Risk Assessments retrieved successfully for universal user",
+      formattedRiskAssessments
+    ));
+    
+  } catch (error) {
+    console.error('Error retrieving all risk assessments:', error);
+    sendResponse(res, errorResponse(
+      error.message || "Some error occurred while retrieving all risk assessments.",
+      500
+    ));
+  }
+};
+
+/**
  * Find a single Risk Assessment by ID with company validation
  * Returns formatted data including all associated individuals from junction table
  */

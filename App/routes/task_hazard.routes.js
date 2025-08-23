@@ -16,6 +16,11 @@ const {
 
 // Apply middleware to all routes
 router.use(auth);
+
+// Universal user route - bypasses company access
+router.get("/universal", task_hazards.findAll);
+
+// Apply company access middleware to other routes
 router.use(ensureCompanyAccess('task_hazards'));
 
 // Create a new Task Hazard
@@ -54,6 +59,13 @@ router.get("/:id/approval-history",
 router.get("/", 
   validatePagination(),
   task_hazards.findAll
+);
+
+// Get task hazards by company (for universal users only)
+router.get("/company/:company_id",
+  requireRole(['universal_user']),
+  validatePagination(),
+  task_hazards.findByCompany
 );
 
 // Retrieve a single Task Hazard with id

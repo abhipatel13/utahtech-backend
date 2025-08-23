@@ -640,18 +640,20 @@ exports.uploadCSV = async (req, res) => {
  */
 exports.findAll = async (req, res) => {
   try {
-    // Get user's company ID
-    const userCompanyId = req.user.company_id || req.user.company?.id;
-    if (!userCompanyId) {
-      const response = errorResponse("User's company information is missing", 400);
-      return sendResponse(res, response);
+    let whereClause = {};
+    
+    if (req.user?.role !== 'universal_user') {
+      const userCompanyId = req.user.company_id || req.user.company?.id;
+      if (!userCompanyId) {
+        const response = errorResponse("User's company information is missing", 400);
+        return sendResponse(res, response);
+      }
+      whereClause.companyId = userCompanyId;
     }
 
     const assets = await AssetHierarchy.findAll({
       order: [['level', 'ASC'], ['name', 'ASC']],
-      where: {
-        companyId: userCompanyId
-      }
+      where: whereClause
     });
 
     const response = successResponse("Asset hierarchy retrieved successfully", assets);
@@ -667,24 +669,93 @@ exports.findAll = async (req, res) => {
 };
 
 /**
+ * Find Asset Hierarchy by Company ID
+ * @param {object} req - Express request object
+ * @param {object} res - Express response object
+ */
+exports.findByCompany = async (req, res) => {
+  try {
+    const { company_id } = req.params;
+    
+    // Only universal users can access this endpoint
+    if (req.user?.role !== 'universal_user') {
+      const response = errorResponse("Access denied. Universal user role required.", 403);
+      return sendResponse(res, response);
+    }
+
+    // Validate company_id parameter
+    if (!company_id) {
+      const response = errorResponse("Company ID is required", 400);
+      return sendResponse(res, response);
+    }
+
+    // Build where clause based on company selection
+    let whereClause = {};
+    
+    if (company_id !== 'all') {
+      // Validate that company_id is a number
+      const companyIdNum = parseInt(company_id);
+      if (isNaN(companyIdNum)) {
+        const response = errorResponse("Invalid company ID format", 400);
+        return sendResponse(res, response);
+      }
+      whereClause.companyId = companyIdNum;
+    }
+    // If company_id is 'all', no filtering is applied (empty whereClause)
+
+    const assets = await AssetHierarchy.findAll({
+      order: [['level', 'ASC'], ['name', 'ASC']],
+      where: whereClause,
+      include: [
+        {
+          model: db.company,
+          as: 'company',
+          attributes: ['id', 'name'],
+          required: false
+        }
+      ]
+    });
+
+    const response = successResponse(
+      company_id === 'all' 
+        ? "All asset hierarchy retrieved successfully" 
+        : `Asset hierarchy for company ${company_id} retrieved successfully`, 
+      assets
+    );
+    sendResponse(res, response);
+  } catch (error) {
+    console.error('Error retrieving asset hierarchy by company:', error);
+    const response = errorResponse(
+      error.message || "Some error occurred while retrieving asset hierarchy by company.",
+      500
+    );
+    sendResponse(res, response);
+  }
+};
+
+/**
  * Find a single Asset Hierarchy entry with an id
  * @param {object} req - Express request object
  * @param {object} res - Express response object
  */
 exports.findOne = async (req, res) => {
   try {
-    // Get user's company ID
-    const userCompanyId = req.user.company_id || req.user.company?.id;
-    if (!userCompanyId) {
-      const response = errorResponse("User's company information is missing", 400);
-      return sendResponse(res, response);
+    // Universal users don't have company restrictions
+    let whereClause = { id: req.params.id };
+    
+    if (req.user?.role !== 'universal_user') {
+      // Get user's company ID for non-universal users
+      const userCompanyId = req.user.company_id || req.user.company?.id;
+      if (!userCompanyId) {
+        const response = errorResponse("User's company information is missing", 400);
+        return sendResponse(res, response);
+      }
+      whereClause.companyId = userCompanyId; // Ensure user can only access their company's assets
     }
+    // Universal users can access all assets
 
     const asset = await AssetHierarchy.findOne({
-      where: {
-        id: req.params.id,
-        companyId: userCompanyId // Ensure user can only access their company's assets
-      },
+      where: whereClause,
       include: [{
         model: AssetHierarchy,
         as: 'children',

@@ -72,6 +72,12 @@ router.get('/',
   assetHierarchyController.findAll
 );
 
+// Get assets by company (for universal users only)
+router.get('/company/:company_id',
+  requireRole(['universal_user']),
+  assetHierarchyController.findByCompany
+);
+
 // Get upload history
 router.get('/upload-history',
   requireRole(['admin', 'superuser']),

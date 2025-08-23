@@ -56,6 +56,11 @@ const convertToInteger = (value) => {
  * Helper function to get user's company ID with validation
  */
 const getUserCompanyId = (req) => {
+  // Universal users don't have company restrictions
+  if (req.user?.role === 'universal_user') {
+    return null;
+  }
+  
   const userCompanyId = req.user?.company?.id;
   if (!userCompanyId) {
     throw new Error("User's company information is missing");
@@ -599,9 +604,12 @@ exports.findAll = async (req, res) => {
     // Get pagination parameters
     const { page, limit, offset } = req.pagination || { page: 1, limit: 100, offset: 0 };
     
+    // Build where clause - universal users see all task hazards
+    const whereClause = userCompanyId ? { companyId: userCompanyId } : {};
+    
     // Fetch task hazards with optimized query and pagination
     const { count, rows: taskHazards } = await TaskHazard.findAndCountAll({
-      where: { companyId: userCompanyId },
+      where: whereClause,
       limit,
       offset,
       order: [['createdAt', 'DESC']]
@@ -626,6 +634,82 @@ exports.findAll = async (req, res) => {
       error.message || "Some error occurred while retrieving task hazards.",
       500
     ));
+  }
+};
+
+/**
+ * Find Task Hazards by Company ID (for universal users only)
+ * @param {object} req - Express request object
+ * @param {object} res - Express response object
+ */
+exports.findByCompany = async (req, res) => {
+  try {
+    const { company_id } = req.params;
+    
+    // Only universal users can access this endpoint
+    if (req.user?.role !== 'universal_user') {
+      const response = errorResponse("Access denied. Universal user role required.", 403);
+      return sendResponse(res, response);
+    }
+
+    // Validate company_id parameter
+    if (!company_id) {
+      const response = errorResponse("Company ID is required", 400);
+      return sendResponse(res, response);
+    }
+
+    // Get pagination parameters
+    const { page, limit, offset } = req.pagination || { page: 1, limit: 100, offset: 0 };
+    
+    // Build where clause based on company selection
+    let whereClause = {};
+    
+    if (company_id !== 'all') {
+      // Validate that company_id is a number
+      const companyIdNum = parseInt(company_id);
+      if (isNaN(companyIdNum)) {
+        const response = errorResponse("Invalid company ID format", 400);
+        return sendResponse(res, response);
+      }
+      whereClause.companyId = companyIdNum;
+    }
+    // If company_id is 'all', no filtering is applied (empty whereClause)
+
+    const { count, rows: taskHazards } = await TaskHazard.findAndCountAll({
+      where: whereClause,
+      limit,
+      offset,
+      order: [['createdAt', 'DESC']],
+      include: [
+        {
+          model: db.company,
+          as: 'company',
+          attributes: ['id', 'name'],
+          required: false
+        }
+      ]
+    });
+
+    // Format for frontend response
+    const formattedTaskHazards = taskHazards.map(formatTaskHazard);
+
+    // Send paginated response using helper
+    sendResponse(res, paginatedResponse(
+      formattedTaskHazards,
+      page,
+      limit,
+      count,
+      company_id === 'all' 
+        ? "All task hazards retrieved successfully" 
+        : `Task hazards for company ${company_id} retrieved successfully`
+    ));
+  } catch (error) {
+    console.error('Error retrieving task hazards by company:', error);
+    const response = errorResponse(
+      error.message || "Some error occurred while retrieving task hazards by company.",
+      500
+    );
+    sendResponse(res, response);
   }
 };
 
