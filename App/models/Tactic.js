@@ -16,6 +16,14 @@ class Tactic extends Sequelize.Model {
           key: 'id'
         }
       },
+      site_id: {
+        type: DataTypes.INTEGER,
+        allowNull: true,
+        references: {
+          model: 'sites',
+          key: 'id'
+        }
+      },
       analysisName: {
         type: DataTypes.STRING,
         allowNull: false
@@ -45,7 +53,10 @@ class Tactic extends Sequelize.Model {
   static scopes(models) {
     // Password is excluded by default, but can be included by using the 'auth' scope
     this.addScope('defaultScope', {
-      include: [{ model: models.company, as: 'company' }]
+      include: [
+        { model: models.company, as: 'company' },
+        { model: models.site, as: 'site' }
+      ]
     });
   }
 
@@ -53,6 +64,10 @@ class Tactic extends Sequelize.Model {
     this.belongsTo(models.company, { 
       foreignKey: 'company_id',
       as: 'company'
+    });
+    this.belongsTo(models.site, { 
+      foreignKey: 'site_id',
+      as: 'site'
     });
   }
 }

@@ -3,23 +3,13 @@ const { successResponse, errorResponse, sendResponse } = require('../helper/resp
 const { v4: uuidv4 } = require('uuid');
 
 /**
- * Helper function to get user's company ID with validation
- */
-const getUserCompanyId = (req) => {
-  const userCompanyId = req.user?.company?.id;
-  if (!userCompanyId) {
-    throw new Error("User's company information is missing");
-  }
-  return userCompanyId;
-};
-
-/**
  * Create a new Tactic
  */
 exports.create = async (req, res) => {
   try {
     // Validate user company access
-    const userCompanyId = getUserCompanyId(req);
+    const userCompanyId = req.user.company_id;
+    const userSiteId = req.user.site_id;
 
     const { analysis_name, location, status, ...assetDetails } = req.body;
     
@@ -27,6 +17,7 @@ exports.create = async (req, res) => {
     const tactic = await db.tactics.create({
       id: uuidv4(),
       company_id: userCompanyId,
+      site_id: userSiteId,
       analysisName: analysis_name, // Map from route field name to model field name
       location,
       status,
@@ -54,12 +45,11 @@ exports.create = async (req, res) => {
 exports.findAll = async (req, res) => {
   try {
     // Validate user company access
-    const userCompanyId = getUserCompanyId(req);
+    const userCompanyId = req.user.company_id;
+    const userSiteId = req.user.site_id;
 
     const tactics = await db.tactics.findAll({
-      where: {
-        company_id: userCompanyId
-      }
+      where: userSiteId ? { company_id: userCompanyId, site_id: userSiteId } : { company_id: userCompanyId }
     });
     
     sendResponse(res, successResponse(
@@ -82,13 +72,11 @@ exports.findAll = async (req, res) => {
 exports.findOne = async (req, res) => {
   try {
     // Validate user company access
-    const userCompanyId = getUserCompanyId(req);
+    const userCompanyId = req.user.company_id;
+    const userSiteId = req.user.site_id;
 
     const tactic = await db.tactics.findOne({
-      where: {
-        id: req.params.id,
-        company_id: userCompanyId
-      }
+      where: userSiteId ? { id: req.params.id, company_id: userCompanyId, site_id: userSiteId } : { id: req.params.id, company_id: userCompanyId }
     });
     
     if (!tactic) {
@@ -115,7 +103,8 @@ exports.findOne = async (req, res) => {
 exports.update = async (req, res) => {
   try {
     // Validate user company access
-    const userCompanyId = getUserCompanyId(req);
+    const userCompanyId = req.user.company_id;
+    const userSiteId = req.user.site_id;
 
     // Map field names if analysis_name is provided
     const updateData = { ...req.body };
@@ -125,10 +114,7 @@ exports.update = async (req, res) => {
     }
 
     const [updated] = await db.tactics.update(updateData, {
-      where: {
-        id: req.params.id,
-        company_id: userCompanyId
-      },
+      where: userSiteId ? { id: req.params.id, company_id: userCompanyId, site_id: userSiteId } : { id: req.params.id, company_id: userCompanyId },
       returning: true
     });
     
@@ -138,10 +124,7 @@ exports.update = async (req, res) => {
     
     // Fetch the updated tactic
     const tactic = await db.tactics.findOne({
-      where: { 
-        id: req.params.id,
-        company_id: userCompanyId
-      }
+      where: userSiteId ? { id: req.params.id, company_id: userCompanyId, site_id: userSiteId } : { id: req.params.id, company_id: userCompanyId }
     });
     
     sendResponse(res, successResponse(
@@ -164,13 +147,11 @@ exports.update = async (req, res) => {
 exports.delete = async (req, res) => {
   try {
     // Validate user company access
-    const userCompanyId = getUserCompanyId(req);
+    const userCompanyId = req.user.company_id;
+    const userSiteId = req.user.site_id;
 
     const deleted = await db.tactics.destroy({
-      where: {
-        id: req.params.id,
-        company_id: userCompanyId
-      }
+      where: userSiteId ? { id: req.params.id, company_id: userCompanyId, site_id: userSiteId } : { id: req.params.id, company_id: userCompanyId }
     });
     
     if (!deleted) {

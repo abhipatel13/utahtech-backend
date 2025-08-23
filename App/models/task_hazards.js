@@ -19,6 +19,15 @@ class TaskHazard extends Sequelize.Model {
           key: 'id'
         }
       },
+      siteId: {
+        type: DataTypes.INTEGER,
+        allowNull: true,
+        field: 'site_id',
+        references: {
+          model: 'sites',
+          key: 'id'
+        }
+      },
       date: {
         type: DataTypes.DATEONLY,
         allowNull: false,
@@ -93,6 +102,11 @@ class TaskHazard extends Sequelize.Model {
     this.belongsTo(models.company, {  
       foreignKey: "companyId",
       as: 'company'
+    });
+
+    this.belongsTo(models.site, {
+      foreignKey: 'siteId',
+      as: 'site'
     });
 
     this.hasMany(models.task_risks,{ 

@@ -69,4 +69,8 @@ router.post('/find-user',
   authController.findUserByEmailAndCompany
 );
 
+// Site utilities
+router.get('/sites', auth, authController.getCompanySites);
+router.put('/switch-site', auth, requireJsonBody(), validateRequired(['siteId']), authController.switchCurrentSite);
+
 module.exports = router;

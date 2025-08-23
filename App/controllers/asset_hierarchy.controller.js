@@ -16,8 +16,9 @@ const User = db.user;
  */
 exports.create = async (req, res) => {
   try {
-    // Get user's company ID
-    const userCompanyId = req.user.company_id || req.user.company?.id;
+    // Get user's company/site context
+    const userCompanyId = req.user.company_id;
+    const userSiteId = req.user.site_id;
     if (!userCompanyId) {
       const response = errorResponse("User's company information is missing", 400);
       return sendResponse(res, response);
@@ -58,6 +59,7 @@ exports.create = async (req, res) => {
           return AssetHierarchy.create({
             id: uniqueId,
             companyId: userCompanyId,
+            siteId: userSiteId,
             name: sanitizeInput(asset.name),
             description: asset.description ? sanitizeInput(asset.description) : null,
             level: parseInt(asset.level) || 0,
@@ -196,7 +198,9 @@ const generateSystemErrorReport = (error) => {
  * @param {Buffer} fileBuffer - CSV file buffer
  * @param {number} userCompanyId - User's company ID
  */
-const processCSVAsync = async (fileUpload, fileBuffer, userCompanyId) => {
+const processCSVAsync = async (fileUpload, fileBuffer) => {
+  const userSiteId = fileUpload.siteId;
+  const userCompanyId = fileUpload.companyId;
   try {
     // Update status to processing
     await fileUpload.update({ status: 'processing' });
@@ -218,7 +222,7 @@ const processCSVAsync = async (fileUpload, fileBuffer, userCompanyId) => {
 
       // Step 2: Get existing assets for comparison
       const existingAssets = await AssetHierarchy.unscoped().findAll({
-        where: { companyId: userCompanyId },
+        where: userSiteId ? { companyId: userCompanyId, siteId: userSiteId } : { companyId: userCompanyId },
         paranoid:false,
         transaction: t
       });
@@ -277,6 +281,7 @@ const processCSVAsync = async (fileUpload, fileBuffer, userCompanyId) => {
           asset = await AssetHierarchy.create({
             id: assetData.id,
             companyId: userCompanyId,
+            siteId: userSiteId,
             name: assetData.name,
             description: assetData.description,
             cmmsInternalId: assetData.cmmsInternalId,
@@ -303,7 +308,7 @@ const processCSVAsync = async (fileUpload, fileBuffer, userCompanyId) => {
       // Step 6: Clean up any assets that were restored but shouldn't exist
       // This handles the case where restoring a parent also restored children not in CSV
       const allCurrentAssets = await AssetHierarchy.findAll({
-        where: { companyId: userCompanyId },
+        where: userSiteId ? { companyId: userCompanyId, siteId: userSiteId } : { companyId: userCompanyId },
         transaction: t
       });
       
@@ -315,11 +320,11 @@ const processCSVAsync = async (fileUpload, fileBuffer, userCompanyId) => {
       }
 
       // Step 7: Recalculate hierarchy levels
-      await recalculateHierarchyLevels(userCompanyId, t);
+      await recalculateHierarchyLevels(userCompanyId, userSiteId, t);
 
       // Step 8: Get final asset list
       const finalAssets = await AssetHierarchy.findAll({
-        where: { companyId: userCompanyId },
+        where: userSiteId ? { companyId: userCompanyId, siteId: userSiteId } : { companyId: userCompanyId },
         order: [['level', 'ASC'], ['name', 'ASC']],
         transaction: t
       });
@@ -552,14 +557,15 @@ const validateCSVData = async (assets) => {
  * @param {number} userCompanyId - Company ID
  * @param {object} transaction - Database transaction
  */
-const recalculateHierarchyLevels = async (userCompanyId, transaction) => {
+const recalculateHierarchyLevels = async (userCompanyId, userSiteId, transaction) => {
   const calculateLevels = async (asset, level) => {
     await asset.update({ level }, { transaction });
     
     const children = await AssetHierarchy.findAll({
       where: { 
         parent: asset.id,
-        companyId: userCompanyId 
+        companyId: userCompanyId,
+        ...(userSiteId ? { siteId: userSiteId } : {})
       },
       transaction
     });
@@ -573,7 +579,8 @@ const recalculateHierarchyLevels = async (userCompanyId, transaction) => {
   const rootAssets = await AssetHierarchy.findAll({
     where: { 
       parent: null, 
-      companyId: userCompanyId 
+      companyId: userCompanyId,
+      ...(userSiteId ? { siteId: userSiteId } : {})
     },
     transaction
   });
@@ -585,8 +592,9 @@ const recalculateHierarchyLevels = async (userCompanyId, transaction) => {
 
 exports.uploadCSV = async (req, res) => {
   try {
-    // Get user's company ID
-    const userCompanyId = req.user.company_id || req.user.company?.id;
+    // Get user's company/site context
+    const userCompanyId = req.user.company_id;
+    const userSiteId = req.user.site_id;
     if (!userCompanyId) {
       const response = errorResponse("User's company information is missing", 400);
       return sendResponse(res, response);
@@ -605,6 +613,7 @@ exports.uploadCSV = async (req, res) => {
       fileSize: req.file.size,
       uploaderId: req.user.id,
       companyId: userCompanyId,
+      siteId: userSiteId,
       status: 'uploading'
     });
 
@@ -619,7 +628,7 @@ exports.uploadCSV = async (req, res) => {
 
     // Process CSV asynchronously (don't await)
     setImmediate(() => {
-      processCSVAsync(fileUpload, req.file.buffer, userCompanyId);
+      processCSVAsync(fileUpload, req.file.buffer);
     });
 
   } catch (error) {
@@ -641,7 +650,7 @@ exports.uploadCSV = async (req, res) => {
 exports.findAll = async (req, res) => {
   try {
     // Get user's company ID
-    const userCompanyId = req.user.company_id || req.user.company?.id;
+    const userCompanyId = req.user.company_id;
     if (!userCompanyId) {
       const response = errorResponse("User's company information is missing", 400);
       return sendResponse(res, response);
@@ -674,7 +683,7 @@ exports.findAll = async (req, res) => {
 exports.findOne = async (req, res) => {
   try {
     // Get user's company ID
-    const userCompanyId = req.user.company_id || req.user.company?.id;
+    const userCompanyId = req.user.company_id;
     if (!userCompanyId) {
       const response = errorResponse("User's company information is missing", 400);
       return sendResponse(res, response);
@@ -712,8 +721,6 @@ exports.findOne = async (req, res) => {
   }
 };
 
-
-
 /**
  * Get upload history for the current company
  * @param {object} req - Express request object
@@ -722,7 +729,7 @@ exports.findOne = async (req, res) => {
 exports.getUploadHistory = async (req, res) => {
   try {
     // Get user's company ID
-    const userCompanyId = req.user.company_id || req.user.company?.id;
+    const userCompanyId = req.user.company_id;
     if (!userCompanyId) {
       const response = errorResponse("User's company information is missing", 400);
       return sendResponse(res, response);
@@ -792,7 +799,7 @@ exports.getUploadHistory = async (req, res) => {
 exports.getUploadStatus = async (req, res) => {
   try {
     // Get user's company ID
-    const userCompanyId = req.user.company_id || req.user.company?.id;
+    const userCompanyId = req.user.company_id;
     if (!userCompanyId) {
       const response = errorResponse("User's company information is missing", 400);
       return sendResponse(res, response);

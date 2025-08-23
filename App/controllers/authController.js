@@ -54,15 +54,10 @@ module.exports.login = async (req, res) => {
 			{ expiresIn: process.env.JWT_EXPIRATION || '24h' }
 		);
 
+
 		// Return user data and token
 		const response = successResponse('Login successful', {
-			user: {
-				_id: user.id,
-				email: user.email,
-				role: user.role,
-				company_id: user.company_id,
-				company: user.company
-			},
+			user: formatUserResponse(user),
 			token
 		});
 
@@ -74,6 +69,19 @@ module.exports.login = async (req, res) => {
 		return sendResponse(res, response);
 	}
 };
+
+formatUserResponse = (user) => {
+	return {
+		id: user.id,
+		email: user.email,
+		name: user.name || user.email,
+		role: user.role,
+		company_id: user.company_id,
+		company: user.company,
+		site: user.site,
+		site_id: user.site_id
+	}
+}
 
 module.exports.forgotPassword = async (req, res) => {
 	try {
@@ -331,28 +339,14 @@ module.exports.logout = async (req, res) => {
 
 module.exports.getProfile = async (req, res) => {
 	try {
-		const user = await User.findByPk(req.user.id, {
-			attributes: { exclude: ['password'] },
-			include: [
-				{
-					model: models.company,
-					as: 'company',
-					attributes: ['id', 'name']
-				}
-			]
-		});
+		const user = await User.findByPk(req.user.id);
 
 		if (!user) {
 			const response = errorResponse('User not found', 404);
 			return sendResponse(res, response);
 		}
 
-		const userData = {
-			...user.toJSON(),
-			permissions: user.getPermissions()
-		};
-
-		const response = successResponse('Profile retrieved successfully', userData);
+		const response = successResponse('Profile retrieved successfully', formatUserResponse(user));
 		return sendResponse(res, response);
 
 	} catch (error) {
@@ -422,25 +416,8 @@ module.exports.updateProfile = async (req, res) => {
 		// Update the user
 		await user.update(updateData);
 
-		// Return updated user data without password
-		const updatedUser = await User.findByPk(userId, {
-			attributes: { exclude: ['password'] },
-			include: [
-				{
-					model: models.company,
-					as: 'company',
-					attributes: ['id', 'name']
-				}
-			]
-		});
-
-		const response = successResponse('Profile updated successfully', {
-			id: updatedUser.id,
-			email: updatedUser.email,
-			name: updatedUser.name,
-			role: updatedUser.role,
-			company: updatedUser.company
-		});
+		const updatedUser = await User.findByPk(userId);
+		const response = successResponse('Profile updated successfully', formatUserResponse(updatedUser));
 
 		return sendResponse(res, response);
 
@@ -455,4 +432,78 @@ module.exports.updateProfile = async (req, res) => {
 		const response = errorResponse('Internal server error', 500);
 		return sendResponse(res, response);
 	}
+};
+
+// List sites for the user's company (or specified company for universal users)
+module.exports.getCompanySites = async (req, res) => {
+  try {
+    const isUniversal = req.user.role === 'universal_user';
+    let companyId = req.user.company_id || req.user.company?.id;
+
+    if (isUniversal) {
+      const requestedCompanyId = req.query.companyId ? parseInt(req.query.companyId) : null;
+      if (!requestedCompanyId) {
+        const response = errorResponse('companyId query param is required for universal users', 400);
+        return sendResponse(res, response);
+      }
+      companyId = requestedCompanyId;
+    }
+
+    if (!companyId) {
+      const response = errorResponse("User's company information is missing", 400);
+      return sendResponse(res, response);
+    }
+
+    const sites = await models.site.findAll({
+      where: { parentCompanyId: companyId },
+      order: [['name', 'ASC']]
+    });
+
+    const response = successResponse('Sites retrieved successfully', sites);
+    return sendResponse(res, response);
+  } catch (error) {
+    console.error('Get company sites error:', error);
+    const response = errorResponse('Internal server error', 500);
+    return sendResponse(res, response);
+  }
+};
+
+// Switch current/primary site for the authenticated user
+module.exports.switchCurrentSite = async (req, res) => {
+  try {
+    const { siteId } = req.body;
+    if (!siteId) {
+      const response = errorResponse('siteId is required', 400);
+      return sendResponse(res, response);
+    }
+
+    const site = await models.site.findOne({ where: { id: siteId } });
+    if (!site) {
+      const response = errorResponse('Site not found', 404);
+      return sendResponse(res, response);
+    }
+
+    const isUniversal = req.user.role === 'universal_user';
+    if (!isUniversal) {
+      const userCompanyId = req.user.company_id || req.user.company?.id;
+      if (!userCompanyId || site.parentCompanyId !== userCompanyId) {
+        const response = errorResponse('Access denied: Site does not belong to your company', 403);
+        return sendResponse(res, response);
+      }
+    }
+
+    // Update user's primary/current site
+    await req.user.update({ site_id: siteId });
+	const updatedUser = await User.findByPk(req.user.id);
+
+    const response = successResponse('Current site updated successfully', {
+      user: formatUserResponse(updatedUser)
+    });
+    return sendResponse(res, response);
+
+  } catch (error) {
+    console.error('Switch current site error:', error);
+    const response = errorResponse('Internal server error', 500);
+    return sendResponse(res, response);
+  }
 };

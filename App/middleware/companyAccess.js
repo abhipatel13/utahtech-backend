@@ -16,11 +16,14 @@ const ensureCompanyAccess = (model) => {
 
             // Get company ID from user (prefer company_id over company)
             const userCompanyId = req.user.company_id || req.user.company?.id;
+            const userSiteId = req.user.site_id || req.user.site?.id;
             
-            if (!userCompanyId) {
+            if (!userCompanyId || !userSiteId) {
                 console.error('Company access middleware: User missing company information', {
                     userId: req.user.id,
-                    userRole: req.user.role
+                    userRole: req.user.role,
+                    userCompanyId: userCompanyId,
+                    userSiteId: userSiteId
                 });
                 return res.status(403).json({
                     status: false,
@@ -28,26 +31,6 @@ const ensureCompanyAccess = (model) => {
                 });
             }
 
-            // Superusers can access any company data
-            if (req.user.role === 'superuser') {
-                return next();
-            }
-            
-            // For non-superusers, enforce company access restrictions
-            // Add company filter to query parameters for GET requests
-            if (req.method === 'GET') {
-                if (!req.query) {
-                    req.query = {};
-                }
-                
-                if (!req.query.where) {
-                    req.query.where = {};
-                }
-                
-                // Use company_id for consistency with database schema
-                req.query.where.company_id = userCompanyId;
-            }
-            
             // For create/update operations, automatically set the company
             if (['POST', 'PUT', 'PATCH'].includes(req.method)) {
                 if (!req.body) {
@@ -64,10 +47,12 @@ const ensureCompanyAccess = (model) => {
                 
                 // Set company_id for the user's company
                 req.body.company_id = userCompanyId;
+                req.body.site_id = userSiteId;
             }
             
             // Store company context for use in controllers
             req.userCompanyId = userCompanyId;
+            req.userSiteId = userSiteId;
             
             next();
         } catch (error) {

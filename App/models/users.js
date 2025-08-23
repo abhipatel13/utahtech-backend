@@ -36,6 +36,14 @@ class Users extends Sequelize.Model {
             key: 'id'
           }
         },
+        site_id: {
+          type: DataTypes.INTEGER,
+          allowNull: true,
+          references: {
+            model: 'sites',
+            key: 'id'
+          }
+        },
         supervisor_id: {
           type: DataTypes.INTEGER,
           allowNull: true,
@@ -99,6 +107,10 @@ class Users extends Sequelize.Model {
       foreignKey: 'company_id',
       as: 'company'
     });
+    this.belongsTo(models.site, {
+      foreignKey: 'site_id',
+      as: 'site'
+    });
     this.hasMany(models.task_hazards, { foreignKey: 'supervisorId' });
     
     // Many-to-many relationship with task hazards for multiple individuals
@@ -121,15 +133,21 @@ class Users extends Sequelize.Model {
   static scopes(models) {
     // Password is excluded by default, but can be included by using the 'auth' scope
     this.addScope('defaultScope', {
-      attributes: ["id", "email", "name", "role", "company_id"],
+      attributes: ["id", "email", "name", "role", "company_id", "site_id"],
       exclude: ['password'],
-      include: [{ model: models.company, as: 'company', attributes: ["id", "name"]}]
+      include: [
+        { model: models.company, as: 'company', attributes: ["id", "name"]},
+        { model: models.site, as: 'site', attributes: ["id", "name"]}
+      ]
     });
     this.addScope('basic', {
       attributes: ["id", "email", "name", "role"],
     });
     this.addScope('auth', {
-        include: [{ model: models.company, as: 'company' }]
+        include: [
+          { model: models.company, as: 'company' },
+          { model: models.site, as: 'site' }
+        ]
     });
   }
 

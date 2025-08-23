@@ -17,6 +17,15 @@ class AssetHierarchy extends Sequelize.Model {
           key: 'id'
         }
       },
+      siteId: {
+        type: Sequelize.INTEGER,
+        field: 'site_id',
+        allowNull: true,
+        references: {
+          model: 'sites',
+          key: 'id'
+        }
+      },
       name: {
         type: Sequelize.STRING,  // Functional Location Description
         field: 'name',
@@ -123,6 +132,11 @@ class AssetHierarchy extends Sequelize.Model {
     this.belongsTo(models.company, {
       foreignKey: 'companyId',
       as: 'company'
+    });
+
+    this.belongsTo(models.site, {
+      foreignKey: 'siteId',
+      as: 'site'
     });
 
     this.hasMany(models.task_hazards, {

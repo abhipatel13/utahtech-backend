@@ -5,17 +5,6 @@ const User = db.user;
 const { successResponse, errorResponse, sendResponse, paginatedResponse } = require('../helper/responseHelper');
 
 /**
- * Helper function to get user's company ID with validation
- */
-const getUserCompanyId = (req) => {
-  const userCompanyId = req.user?.company?.id;
-  if (!userCompanyId) {
-    throw new Error("User's company information is missing");
-  }
-  return userCompanyId;
-};
-
-/**
  * Helper function to convert likelihood and consequence strings to integers
  * Supports both string values and numeric inputs with proper fallbacks
  */
@@ -189,14 +178,9 @@ const updateRiskAssessmentRisks = async (riskAssessment, newRisks, transaction) 
 /**
  * Helper function to find risk assessment with company validation
  */
-const findRiskAssessmentByIdAndCompany = async (id, companyId, includeAssociations = true) => {
-  const whereClause = { id, companyId };
+const findRiskAssessmentByIdAndCompanyOrSite = async (id, companyId, siteId) => {
+  const whereClause = siteId ? { id, siteId } : { id, companyId };
   const options = { where: whereClause };
-  
-  // Only include associations if needed (optimization for queries that don't need them)
-  if (includeAssociations) {
-    // Let the default scope handle associations
-  }
   
   const riskAssessment = await RiskAssessment.findOne(options);
   
@@ -220,7 +204,8 @@ exports.create = async (req, res) => {
     transaction = await db.sequelize.transaction();
     
     // Validate user company access
-    const userCompanyId = getUserCompanyId(req);
+    const userCompanyId = req.user.company_id;
+    const userSiteId = req.user.site_id;
 
     // Parse and validate individuals (database lookup)
     let individuals, supervisor;
@@ -239,6 +224,7 @@ exports.create = async (req, res) => {
     // Create Risk Assessment (using junction table for all individuals)
     const riskAssessment = await RiskAssessment.create({
       companyId: userCompanyId,
+      siteId: userSiteId,
       date: req.body.date,
       time: req.body.time,
       scopeOfWork: req.body.scopeOfWork,
@@ -286,11 +272,12 @@ exports.create = async (req, res) => {
 exports.findAll = async (req, res) => {
   try {
     // Validate user company access
-    const userCompanyId = getUserCompanyId(req);
+    const userCompanyId = req.user.company_id;
+    const userSiteId = req.user.site_id;
     
     // Fetch risk assessments with optimized query (default scope includes all needed associations)
     const riskAssessments = await RiskAssessment.findAll({
-      where: { companyId: userCompanyId }
+      where: userSiteId ? { siteId: userSiteId } : { companyId: userCompanyId }
       // Default scope automatically includes: company, supervisor, individuals
     });
 
@@ -318,10 +305,11 @@ exports.findAll = async (req, res) => {
 exports.findOne = async (req, res) => {
   try {
     // Validate user company access
-    const userCompanyId = getUserCompanyId(req);
+    const userCompanyId = req.user.company_id;
+    const userSiteId = req.user.site_id;
     
     // Find risk assessment with company validation
-    const riskAssessment = await findRiskAssessmentByIdAndCompany(req.params.id, userCompanyId);
+    const riskAssessment = await findRiskAssessmentByIdAndCompanyOrSite(req.params.id, userCompanyId, userSiteId);
 
     // Format for frontend response
     const formattedRiskAssessment = formatRiskAssessment(riskAssessment);
@@ -352,7 +340,8 @@ exports.findOne = async (req, res) => {
 exports.update = async (req, res) => {
   try {
     // Validate user company access
-    const userCompanyId = getUserCompanyId(req);
+    const userCompanyId = req.user.company_id;
+    const userSiteId = req.user.site_id;
 
     const user = await User.findOne({
       where: {
@@ -372,7 +361,7 @@ exports.update = async (req, res) => {
     }
 
     // Find risk assessment with company validation (before starting transaction)
-    const riskAssessment = await findRiskAssessmentByIdAndCompany(req.body.id, userCompanyId);
+    const riskAssessment = await findRiskAssessmentByIdAndCompanyOrSite(req.body.id, userCompanyId, userSiteId);
 
     // Validate individuals and supervisor (before transaction for better error handling)
     let individuals, supervisor;
@@ -436,11 +425,12 @@ exports.update = async (req, res) => {
 exports.delete = async (req, res) => {
   try {
     // Validate user company access
-    const userCompanyId = getUserCompanyId(req);
+    const userCompanyId = req.user.company_id;
+    const userSiteId = req.user.site_id;
     const id = req.params.id;
     
     // Find risk assessment with company validation
-    const riskAssessment = await findRiskAssessmentByIdAndCompany(id, userCompanyId, false);
+    const riskAssessment = await findRiskAssessmentByIdAndCompanyOrSite(id, userCompanyId, userSiteId);
 
     // Delete within transaction for data consistency
     await db.sequelize.transaction(async (transaction) => {

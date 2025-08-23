@@ -1,6 +1,7 @@
 const models = require("../models");
 const User = models.user;
 const Company = models.company;
+const Site = models.site;
 const { Op } = require('sequelize');
 const bcrypt = require("bcryptjs");
 const { successResponse, errorResponse, sendResponse } = require('../helper/responseHelper');
@@ -494,3 +495,20 @@ module.exports.deleteUserAnyCompany = async (req, res) => {
     return sendResponse(res, response);
   }
 }; 
+
+// Get all sites for a company (universal user only)
+module.exports.getCompanySites = async (req, res) => {
+  try {
+    const { company_id } = req.params;
+    const sites = await Site.findAll({
+      where: { company_id: company_id }
+    });
+    console.log("sites:", sites);
+    const response = successResponse('Sites retrieved successfully', sites);
+    return sendResponse(res, response);
+  } catch (error) {
+    console.error('Get company sites error:', error);
+    const response = errorResponse('Internal server error', 500);
+    return sendResponse(res, response);
+  }
+}

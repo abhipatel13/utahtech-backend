@@ -1,6 +1,7 @@
 const express = require('express');
 const router = express.Router();
 const { auth } = require('../middleware/auth');
+const { ensureCompanyAccess } = require('../middleware/companyAccess');
 const { 
   validateRequired, 
   requireRole, 
@@ -12,7 +13,8 @@ const LicenseController = require('../controllers/licenseController');
 
 // Create a new license pool (superuser only)
 router.post('/pools', 
-  auth, 
+  auth,
+  ensureCompanyAccess({ scope: 'company' }), 
   requireRole(['superuser']),
   requireJsonBody(),
   validateRequired(['poolName', 'totalLicenses', 'licenseType', 'validityPeriodMonths', 'totalAmount', 'pricePerLicense']),
@@ -21,18 +23,20 @@ router.post('/pools',
 );
 
 // Get all license pools
-router.get('/pools', auth, LicenseController.getAllLicensePools);
+router.get('/pools', auth, ensureCompanyAccess({ scope: 'company' }), LicenseController.getAllLicensePools);
 
 // Get specific license pool
 router.get('/pools/:poolId', 
-  auth, 
+  auth,
+  ensureCompanyAccess({ scope: 'company' }), 
   validateIdParam('poolId'), 
   LicenseController.getLicensePoolById
 );
 
 // Update license pool
 router.put('/pools/:poolId', 
-  auth, 
+  auth,
+  ensureCompanyAccess({ scope: 'company' }), 
   requireRole(['superuser', 'admin']),
   validateIdParam('poolId'),
   requireJsonBody(),
@@ -42,7 +46,8 @@ router.put('/pools/:poolId',
 
 // Allocate license to user
 router.post('/allocations', 
-  auth, 
+  auth,
+  ensureCompanyAccess({ scope: 'company' }), 
   requireRole(['superuser', 'admin']),
   requireJsonBody(),
   validateRequired(['licensePoolId', 'userId']),
@@ -50,11 +55,12 @@ router.post('/allocations',
 );
 
 // Get all license allocations
-router.get('/allocations', auth, LicenseController.getAllAllocations);
+router.get('/allocations', auth, ensureCompanyAccess({ scope: 'company' }), LicenseController.getAllAllocations);
 
 // Revoke license allocation
 router.delete('/allocations/:id', 
-  auth, 
+  auth,
+  ensureCompanyAccess({ scope: 'company' }), 
   requireRole(['superuser', 'admin']),
   validateIdParam('id'),
   LicenseController.revokeLicense
@@ -62,14 +68,16 @@ router.delete('/allocations/:id',
 
 // Get user license status
 router.get('/users/:userId/status', 
-  auth, 
+  auth,
+  ensureCompanyAccess({ scope: 'company' }), 
   validateIdParam('userId'), 
   LicenseController.getUserLicenseStatus
 );
 
 // Get license analytics
 router.get('/analytics', 
-  auth, 
+  auth,
+  ensureCompanyAccess({ scope: 'company' }), 
   requireRole(['superuser', 'admin']), 
   LicenseController.getLicenseAnalytics
 );

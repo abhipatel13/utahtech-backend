@@ -40,6 +40,14 @@ class FileUpload extends Sequelize.Model {
           key: 'id'
         }
       },
+      siteId: {
+        type: DataTypes.INTEGER,
+        allowNull: true,
+        references: {
+          model: 'sites',
+          key: 'id'
+        }
+      },
       uploaderId: {
         type: DataTypes.INTEGER,
         allowNull: false,
@@ -62,6 +70,11 @@ class FileUpload extends Sequelize.Model {
     this.belongsTo(models.company, { 
       foreignKey: "companyId",
       as: 'company'
+    });
+    
+    this.belongsTo(models.site, { 
+      foreignKey: "siteId",
+      as: 'site'
     });
     
     this.belongsTo(models.user, { 

@@ -50,21 +50,6 @@ const convertToInteger = (value) => {
   return 1; // Default fallback
 };
 
-
-
-/**
- * Helper function to get user's company ID with validation
- */
-const getUserCompanyId = (req) => {
-  const userCompanyId = req.user?.company?.id;
-  if (!userCompanyId) {
-    throw new Error("User's company information is missing");
-  }
-  return userCompanyId;
-};
-
-
-
 /**
  * Helper function to parse and validate individual emails
  * Returns array of validated User objects
@@ -286,8 +271,9 @@ exports.create = async (req, res) => {
     // Start transaction early for consistency
     transaction = await db.sequelize.transaction();
     
-    // Validate user company access
-    const userCompanyId = getUserCompanyId(req);
+    // Validate user company/site access
+    const userCompanyId = req.user.company_id;
+    const userSiteId = req.user.site_id;
 
     // Parse and validate individuals (database lookup)
     let individuals, supervisor;
@@ -306,6 +292,7 @@ exports.create = async (req, res) => {
     // Create Task Hazard (using junction table for all individuals)
     const taskHazard = await TaskHazard.create({
       companyId: userCompanyId,
+      siteId: userSiteId,
       date: req.body.date,
       time: req.body.time,
       scopeOfWork: req.body.scopeOfWork,
@@ -387,8 +374,9 @@ exports.create = async (req, res) => {
  */
 exports.getAllApprovals = async (req, res) => {
   try {
-    // Validate user company access
-    const userCompanyId = getUserCompanyId(req);
+    // Validate user company/site access
+    const userCompanyId = req.user.company_id;
+    const userSiteId = req.user.site_id;
     
     // Check if user has appropriate privileges
     const user = await User.findOne({
@@ -428,7 +416,7 @@ exports.getAllApprovals = async (req, res) => {
         {
           model: TaskHazard,
           as: 'taskHazard',
-          where: { companyId: userCompanyId },
+          where: userSiteId ? { siteId: userSiteId } : { companyId: userCompanyId },
           attributes: ['id', 'date', 'time', 'scopeOfWork', 'location', 'status'],
           include: [
             {
@@ -593,15 +581,16 @@ exports.getAllApprovals = async (req, res) => {
  */
 exports.findAll = async (req, res) => {
   try {
-    // Validate user company access
-    const userCompanyId = getUserCompanyId(req);
+    // Validate user company/site access
+    const userCompanyId = req.user.company_id;
+    const userSiteId = req.user.site_id;
     
     // Get pagination parameters
     const { page, limit, offset } = req.pagination || { page: 1, limit: 100, offset: 0 };
     
     // Fetch task hazards with optimized query and pagination
     const { count, rows: taskHazards } = await TaskHazard.findAndCountAll({
-      where: { companyId: userCompanyId },
+      where: userSiteId ? { siteId: userSiteId } : { companyId: userCompanyId },
       limit,
       offset,
       order: [['createdAt', 'DESC']]
@@ -636,11 +625,14 @@ exports.findAll = async (req, res) => {
  */
 exports.findOne = async (req, res) => {
   try {
-    // Validate user company access
-    const userCompanyId = getUserCompanyId(req);
+    // Validate user company/site access
+    const userCompanyId = req.user.company_id;
+    const userSiteId = req.user.site_id;
     
-    // Find task hazard with company validation
-    const taskHazard = await findTaskHazardByIdAndCompany(req.params.id, userCompanyId);
+    // Find task hazard with site/company validation
+    const taskHazard = userSiteId
+      ? await TaskHazard.findOne({ where: { id: req.params.id, siteId: userSiteId } })
+      : await TaskHazard.findOne({ where: { id: req.params.id, companyId: userCompanyId } });
 
     // Format for frontend response
     const formattedTaskHazard = formatTaskHazard(taskHazard);
@@ -675,8 +667,9 @@ exports.findOne = async (req, res) => {
  */
 exports.update = async (req, res) => {
   try {
-    // Validate user company access
-    const userCompanyId = getUserCompanyId(req);
+    // Validate user company/site access
+    const userCompanyId = req.user.company_id;
+    const userSiteId = req.user.site_id;
 
     const user = await User.findOne({
       where: {
@@ -687,8 +680,10 @@ exports.update = async (req, res) => {
       return sendResponse(res, errorResponse("Submitting user not found", 403));
     }
 
-    // Find task hazard with company validation and current approval (before starting transaction)
-    const taskHazard = await findTaskHazardByIdAndCompany(req.body.id, userCompanyId);
+    // Find task hazard with site/company validation and current approval (before starting transaction)
+    const taskHazard = userSiteId
+      ? await TaskHazard.findOne({ where: { id: req.body.id, siteId: userSiteId } })
+      : await TaskHazard.findOne({ where: { id: req.body.id, companyId: userCompanyId } });
 
     if(!taskHazard){
       return sendResponse(res, errorResponse("Task Hazard not found", 404));
@@ -840,8 +835,9 @@ exports.supervisorApproval = async (req, res) => {
   let transaction;
   
   try {
-    // Validate user company access
-    const userCompanyId = getUserCompanyId(req);
+    // Validate user company/site access
+    const userCompanyId = req.user.company_id;
+    const userSiteId = req.user.site_id;
     const user = await User.findOne({
       where: {
         id: req.user.id
@@ -957,7 +953,7 @@ exports.supervisorApproval = async (req, res) => {
 exports.getApprovalHistory = async (req, res) => {
   try {
     // Validate user company access
-    const userCompanyId = getUserCompanyId(req);
+    const userCompanyId = req.user.company_id;
     
     // Find task hazard with company validation
     const taskHazard = await findTaskHazardByIdAndCompany(req.params.id, userCompanyId, false);
@@ -1034,11 +1030,14 @@ exports.getApprovalHistory = async (req, res) => {
 exports.delete = async (req, res) => {
   try {
     // Validate user company access
-    const userCompanyId = getUserCompanyId(req);
+    const userCompanyId = req.user.company_id;
+    const userSiteId = req.user.site_id;
     const id = req.params.id;
     
     // Find task hazard with company validation
-    const taskHazard = await findTaskHazardByIdAndCompany(id, userCompanyId, false);
+    const taskHazard = userSiteId
+      ? await TaskHazard.unscoped().findOne({ where: { id, siteId: userSiteId } })
+      : await TaskHazard.unscoped().findOne({ where: { id, companyId: userCompanyId } });
 
     // Delete within transaction for data consistency
     await db.sequelize.transaction(async (transaction) => {
