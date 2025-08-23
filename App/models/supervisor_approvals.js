@@ -19,6 +19,15 @@ class SupervisorApproval extends Sequelize.Model {
           key: 'id'
         }
       },
+      siteId: {
+        type: DataTypes.INTEGER,
+        allowNull: false,
+        field: 'site_id',
+        references: {
+          model: 'sites',
+          key: 'id'
+        }
+      },
       supervisorId: {
         type: DataTypes.INTEGER,
         allowNull: false,
@@ -87,6 +96,11 @@ class SupervisorApproval extends Sequelize.Model {
     this.belongsTo(models.task_hazards, {
       foreignKey: 'taskHazardId',
       as: 'taskHazard'
+    });
+
+    this.belongsTo(models.site, {
+      foreignKey: 'siteId',
+      as: 'site'
     });
 
     // Belongs to a supervisor (user)

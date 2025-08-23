@@ -7,6 +7,7 @@ const crypto = require('crypto');
 const transporter = require('../helper/mail.helper.js');
 const { successResponse, errorResponse, sendResponse } = require('../helper/responseHelper');
 const { isValidEmail } = require('../helper/validationHelper');
+const { getCompanyId, getSiteId } = require('../helper/controllerHelper');
 
 module.exports.login = async (req, res) => {
 	try {
@@ -27,10 +28,11 @@ module.exports.login = async (req, res) => {
 		// Find user by email only
 		const user = await User.scope('auth').findOne({ 
 			where: {
-				email: email,
-				deleted_at: null  // Only active users
+				email: email
 			}
 		});
+
+		console.log(user);
 
 		if (!user) {
 			const response = errorResponse("Invalid email or password", 401);
@@ -72,7 +74,7 @@ module.exports.login = async (req, res) => {
 
 formatUserResponse = (user) => {
 	return {
-		id: user.id,
+		_id: user.id,
 		email: user.email,
 		name: user.name || user.email,
 		role: user.role,
@@ -437,25 +439,11 @@ module.exports.updateProfile = async (req, res) => {
 // List sites for the user's company (or specified company for universal users)
 module.exports.getCompanySites = async (req, res) => {
   try {
-    const isUniversal = req.user.role === 'universal_user';
-    let companyId = req.user.company_id || req.user.company?.id;
 
-    if (isUniversal) {
-      const requestedCompanyId = req.query.companyId ? parseInt(req.query.companyId) : null;
-      if (!requestedCompanyId) {
-        const response = errorResponse('companyId query param is required for universal users', 400);
-        return sendResponse(res, response);
-      }
-      companyId = requestedCompanyId;
-    }
-
-    if (!companyId) {
-      const response = errorResponse("User's company information is missing", 400);
-      return sendResponse(res, response);
-    }
+	const companyId = await getCompanyId(req);
 
     const sites = await models.site.findAll({
-      where: { parentCompanyId: companyId },
+      where: { companyId: companyId },
       order: [['name', 'ASC']]
     });
 
@@ -483,13 +471,10 @@ module.exports.switchCurrentSite = async (req, res) => {
       return sendResponse(res, response);
     }
 
-    const isUniversal = req.user.role === 'universal_user';
-    if (!isUniversal) {
-      const userCompanyId = req.user.company_id || req.user.company?.id;
-      if (!userCompanyId || site.parentCompanyId !== userCompanyId) {
-        const response = errorResponse('Access denied: Site does not belong to your company', 403);
-        return sendResponse(res, response);
-      }
+    const userCompanyId = await getCompanyId(req);
+    if (!userCompanyId || site.companyId !== userCompanyId) {
+      const response = errorResponse('Access denied: Site does not belong to your company', 403);
+      return sendResponse(res, response);
     }
 
     // Update user's primary/current site

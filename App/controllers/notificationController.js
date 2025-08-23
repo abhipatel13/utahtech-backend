@@ -1,6 +1,7 @@
 const models = require('../models');
 const { successResponse, errorResponse, sendResponse } = require('../helper/responseHelper');
 const { sanitizeInput } = require('../helper/validationHelper');
+const { getSiteId } = require('../helper/controllerHelper');
 
 const Notification = models.notifications;
 const User = models.user;
@@ -13,14 +14,15 @@ const User = models.user;
  * @param {string} type - Notification type
  * @returns {Promise<object>} Created notification
  */
-exports.createNotification = async (userId, title, message, type = 'system') => {
+exports.createNotification = async (userId, siteId, title, message, type = 'system', transaction = null) => {
   try {
     return await Notification.create({
       userId: userId,
+      siteId: siteId,
       title: sanitizeInput(title),
       message: sanitizeInput(message),
       type
-    });
+    }, transaction ? { transaction } : {});
   } catch (error) {
     console.error('Error creating notification:', error);
     throw error;
@@ -35,10 +37,11 @@ exports.createNotification = async (userId, title, message, type = 'system') => 
 exports.getUserNotifications = async (req, res) => {
   try {
     const userId = req.user.id;
+    const siteId = await getSiteId(req);
 
     // Get notifications with user details
     const notifications = await Notification.findAll({
-      where: { user_id: userId },
+      where: { user_id: userId, site_id: siteId },
       include: [{
         model: User,
         as: 'user',
@@ -112,12 +115,14 @@ exports.markAsRead = async (req, res) => {
 exports.markAllAsRead = async (req, res) => {
   try {
     const userId = req.user.id;
+    const siteId = await getSiteId(req);
 
     await Notification.update(
       { isRead: true },
       { 
         where: { 
           user_id: userId,
+          site_id: siteId,
           isRead: false
         }
       }
@@ -173,10 +178,12 @@ exports.deleteNotification = async (req, res) => {
 exports.getUnreadCount = async (req, res) => {
   try {
     const userId = req.user.id;
+    const siteId = await getSiteId(req);
 
     const unreadCount = await Notification.count({
       where: { 
         user_id: userId,
+        site_id: siteId,
         isRead: false
       }
     });

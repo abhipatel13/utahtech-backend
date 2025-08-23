@@ -21,7 +21,7 @@ class RiskAssessment extends Sequelize.Model {
       },
       siteId: {
         type: DataTypes.INTEGER,
-        allowNull: true,
+        allowNull: false,
         field: 'site_id',
         references: {
           model: 'sites',

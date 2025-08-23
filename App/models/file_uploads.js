@@ -42,7 +42,7 @@ class FileUpload extends Sequelize.Model {
       },
       siteId: {
         type: DataTypes.INTEGER,
-        allowNull: true,
+        allowNull: false,
         references: {
           model: 'sites',
           key: 'id'

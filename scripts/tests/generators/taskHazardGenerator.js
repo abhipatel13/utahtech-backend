@@ -2,7 +2,7 @@ const fs = require('fs');
 const path = require('path');
 
 /**
- * Generates task hazard data for each company
+ * Generates task hazard data for each site
  */
 async function generateTaskHazardData(companies, outputPath) {
   const taskHazards = [];
@@ -19,9 +19,19 @@ async function generateTaskHazardData(companies, outputPath) {
       continue;
     }
     
-    // Generate 50 task hazards per company
-    const companyTaskHazards = await generateCompanyTaskHazards(company, companyData, 50);
-    taskHazards.push(...companyTaskHazards);
+    // Generate 40-100 task hazards per site for this company
+    const db = require("../../../App/models");
+    const sites = await db.site.findAll({ where: { companyId: company.id } });
+    if (!sites || sites.length === 0) {
+      console.warn(`No sites found for company: ${company.name}`);
+      continue;
+    }
+
+    for (const site of sites) {
+      const count = 40 + Math.floor(Math.random() * 61); // 40-100 per site
+      const siteTaskHazards = await generateSiteTaskHazards(company, companyData, site, count);
+      taskHazards.push(...siteTaskHazards);
+    }
   }
   
   // Ensure the generated directory exists
@@ -37,31 +47,31 @@ async function generateTaskHazardData(companies, outputPath) {
 }
 
 /**
- * Generates task hazards for a specific company
+ * Generates task hazards for a specific site
  */
-async function generateCompanyTaskHazards(company, companyData, count) {
+async function generateSiteTaskHazards(company, companyData, site, count) {
   const taskHazards = [];
   const db = require("../../../App/models");
   
-  // Get company's assets
+  // Get site's assets
   const assets = await db.asset_hierarchy.findAll({
-    where: { companyId: company.id },
-    attributes: ['id', 'name', 'objectType']
+    where: { companyId: company.id, siteId: site.id },
+    attributes: ['id', 'name', 'objectType', 'siteId']
   });
   
   if (assets.length === 0) {
-    console.warn(`No assets found for company: ${company.name}`);
+    console.warn(`No assets found for site ${site.name} (${company.name})`);
     return taskHazards;
   }
   
-  // Get company's users
+  // Get site's users
   const users = await db.user.findAll({
-    where: { company_id: company.id },
-    attributes: ['id', 'email', 'name', 'role']
+    where: { company_id: company.id, site_id: site.id },
+    attributes: ['id', 'email', 'name', 'role', 'site_id']
   });
   
   if (users.length === 0) {
-    console.warn(`No users found for company: ${company.name}`);
+    console.warn(`No users found for site ${site.name} (${company.name})`);
     return taskHazards;
   }
   
@@ -70,12 +80,12 @@ async function generateCompanyTaskHazards(company, companyData, count) {
   const employees = users.filter(user => user.role === 'user');
   
   if (supervisors.length === 0) {
-    console.warn(`No supervisors found for company: ${company.name}`);
+    console.warn(`No supervisors found for site ${site.name} (${company.name})`);
     return taskHazards;
   }
   
   if (employees.length === 0) {
-    console.warn(`No employees found for company: ${company.name}`);
+    console.warn(`No employees found for site ${site.name} (${company.name})`);
     return taskHazards;
   }
   
@@ -102,13 +112,16 @@ async function generateSingleTaskHazard(company, companyData, assets, supervisor
   // Select random asset
   const asset = assets[Math.floor(Math.random() * assets.length)];
   
-  // Select random supervisor
-  const supervisor = supervisors[Math.floor(Math.random() * supervisors.length)];
+  // Select random supervisor from same site as asset where possible
+  let supervisor = supervisors.find(s => s.site_id === asset.siteId) || supervisors[Math.floor(Math.random() * supervisors.length)];
   
   // Select 1-4 random employees
   const numEmployees = Math.floor(Math.random() * 4) + 1;
   const selectedEmployees = [];
-  const shuffledEmployees = [...employees].sort(() => 0.5 - Math.random());
+  const shuffledEmployees = [...employees.filter(e => e.site_id === asset.siteId)].sort(() => 0.5 - Math.random());
+  if (shuffledEmployees.length === 0) {
+    shuffledEmployees.push(...employees);
+  }
   
   for (let i = 0; i < Math.min(numEmployees, shuffledEmployees.length); i++) {
     selectedEmployees.push(shuffledEmployees[i]);
@@ -123,9 +136,25 @@ async function generateSingleTaskHazard(company, companyData, assets, supervisor
   // Generate trained workforce
   const trainedWorkforce = generateTrainedWorkforce(asset);
   
-  // Generate risks
-  const requiresSupervisorSignature = Math.random() < 0.1; 
-  const risks = generateRisks(asset, requiresSupervisorSignature);
+  // Generate risks with some requiring supervisor signature (mitigated L*C >= 12)
+  const risks = generateRisks(asset);
+  const mitigatedScore = (r) => {
+    const mapL = { 'Very Unlikely': 1, 'Slight Chance': 2, 'Feasible': 3, 'Likely': 4, 'Very Likely': 5 };
+    const mapC = { 'Minor': 1, 'Significant': 2, 'Serious': 3, 'Major': 4, 'Catastrophic': 5 };
+    return (mapL[r.mitigatedLikelihood] || 1) * (mapC[r.mitigatedConsequence] || 1);
+  };
+  // Ensure some risks trigger approvals
+  if (Math.random() < 0.2) {
+    const r = risks[0];
+    if (r) {
+      r.mitigatedLikelihood = 'Very Likely';
+      r.mitigatedConsequence = 'Major';
+    }
+  }
+  // Set requiresSupervisorSignature based on score
+  risks.forEach(r => {
+    r.requiresSupervisorSignature = mitigatedScore(r) >= 12;
+  });
   
   // Generate date and time (within last 30 days)
   const date = generateRandomDate();
@@ -137,10 +166,16 @@ async function generateSingleTaskHazard(company, companyData, assets, supervisor
   // Generate geo fence limit
   const geoFenceLimit = (Math.floor(Math.random() * 40) * 10) + 50; 
   
-  const status = 'Active';
+  // Status distribution: mostly Active, some Completed, some Pending (approval required)
+  let status = 'Active';
+  const anyApproval = risks.some(r => r.requiresSupervisorSignature);
+  const roll = Math.random();
+  if (anyApproval && roll < 0.5) status = 'Pending';
+  else if (roll < 0.2) status = 'Completed';
   
   return {
     companyId: company.id,
+    siteId: asset.siteId,
     date: date,
     time: time,
     scopeOfWork: scopeOfWork,
@@ -247,23 +282,11 @@ function generateScopeOfWork(asset, index) {
 }
 
 /**
- * Generates trained workforce description
+ * Generates trained workforce flag (boolean)
  */
 function generateTrainedWorkforce(asset) {
-  const workforces = [
-    'Certified Maintenance Technicians',
-    'Heavy Equipment Operators',
-    'Safety Specialists',
-    'Electrical Technicians',
-    'Mechanical Maintenance Team',
-    'Facility Maintenance Crew',
-    'Equipment Service Technicians',
-    'Safety Inspection Team',
-    'Maintenance and Operations Crew',
-    'Technical Support Team'
-  ];
-  
-  return workforces[Math.floor(Math.random() * workforces.length)];
+  // 70% chance that trained workforce is available
+  return Math.random() < 0.7;
 }
 
 /**
@@ -534,6 +557,7 @@ async function checkAndAddTaskHazardsToDatabase(db, taskHazardDataPath) {
     // Use the task hazards directly from JSON
     const taskHazardsToCreate = taskHazards.map(taskHazard => ({
       companyId: taskHazard.companyId,
+      siteId: taskHazard.siteId,
       date: taskHazard.date,
       time: taskHazard.time,
       scopeOfWork: taskHazard.scopeOfWork,
@@ -585,7 +609,9 @@ function createMockRequest(taskHazardData) {
       id: 1,
       company: {
         id: taskHazardData.companyId
-      }
+      },
+      company_id: taskHazardData.companyId,
+      site_id: taskHazardData.siteId
     },
     body: {
       date: taskHazardData.date,

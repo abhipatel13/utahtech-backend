@@ -18,7 +18,7 @@ class Tactic extends Sequelize.Model {
       },
       site_id: {
         type: DataTypes.INTEGER,
-        allowNull: true,
+        allowNull: false,
         references: {
           model: 'sites',
           key: 'id'

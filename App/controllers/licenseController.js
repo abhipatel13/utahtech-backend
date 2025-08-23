@@ -70,10 +70,11 @@ exports.createLicensePool = async (req, res) => {
 
     // Create notification for successful pool creation
     await notificationController.createNotification(
-      req.user.id,
-      'License Pool Created',
-      `Successfully created license pool "${poolName}" with ${totalLicenses} licenses.`,
-      'license'
+      userId =req.user.id,
+      siteId = req.user.site_id,
+      title = 'License Pool Created',
+      message = `Successfully created license pool "${poolName}" with ${totalLicenses} licenses.`,
+      type = 'license'
     );
 
     await t.commit();
@@ -339,17 +340,19 @@ exports.allocateLicense = async (req, res) => {
       try {
         if (notificationController && typeof notificationController.createNotification === 'function') {
           await notificationController.createNotification(
-            userId,
-            'License Allocated',
-            `A new license has been allocated to you from pool "${licensePool.poolName}". Valid until ${endDate.toLocaleDateString()}.`,
-            'license'
+            userId = userId,
+            siteId = req.user.site_id,
+            title = 'License Allocated',
+            message = `A new license has been allocated to you from pool "${licensePool.poolName}". Valid until ${endDate.toLocaleDateString()}.`,
+            type = 'license'
           );
 
           await notificationController.createNotification(
-            req.user.id,
-            'License Allocation Successful',
-            `Successfully allocated license from pool "${licensePool.poolName}" to ${user.name} (${user.email}).`,
-            'license'
+            userId = req.user.id,
+            siteId = req.user.site_id,
+            title = 'License Allocation Successful',
+            message = `Successfully allocated license from pool "${licensePool.poolName}" to ${user.name} (${user.email}).`,
+            type = 'license'
           );
         }
       } catch (notificationError) {
@@ -535,10 +538,11 @@ exports.revokeLicense = async (req, res) => {
     // Create notifications
     try {
       await notificationController.createNotification(
-        allocation.userId,
-        'License Revoked',
-        `Your license from pool "${allocation.licensePool.poolName}" has been revoked. ${reason ? `Reason: ${reason}` : ''}`,
-        'license'
+        userId = allocation.userId,
+        siteId = req.user.site_id,
+        title = 'License Revoked',
+        message = `Your license from pool "${allocation.licensePool.poolName}" has been revoked. ${reason ? `Reason: ${reason}` : ''}`,
+        type = 'license'
       );
       console.log("✅ Notification created");
     } catch (notificationError) {
@@ -622,10 +626,11 @@ exports.extendLicense = async (req, res) => {
 
     // Create notification
     await notificationController.createNotification(
-      allocation.userId,
-      'License Extended',
-      `Your license from pool "${allocation.licensePool.poolName}" has been extended by ${additionalMonths} months. New expiry date: ${updatedAllocation.validUntil.toLocaleDateString()}.`,
-      'license'
+      userId = allocation.userId,
+      siteId = req.user.site_id,
+      title = 'License Extended',
+      message = `Your license from pool "${allocation.licensePool.poolName}" has been extended by ${additionalMonths} months. New expiry date: ${updatedAllocation.validUntil.toLocaleDateString()}.`,
+      type = 'license'
     );
 
     return res.status(200).json({

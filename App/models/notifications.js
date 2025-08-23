@@ -13,7 +13,7 @@ class Notification extends Sequelize.Model {
         type: DataTypes.INTEGER,
         allowNull: false,
         references: {
-          model: 'user',
+          model: 'users',
           key: 'id'
         }
       },
@@ -24,6 +24,14 @@ class Notification extends Sequelize.Model {
       message: {
         type: DataTypes.TEXT,
         allowNull: false
+      },
+      siteId: {
+        type: DataTypes.INTEGER,
+        allowNull: false,
+        references: {
+          model: 'sites',
+          key: 'id'
+        }
       },
       type: {
         type: DataTypes.ENUM('license', 'payment', 'system', 'risk', 'hazard', 'approval', 'other'),
@@ -54,6 +62,7 @@ class Notification extends Sequelize.Model {
 
   static associate(models) {
     this.belongsTo(models.user, { foreignKey: 'userId', as: 'user' });
+    this.belongsTo(models.site, { foreignKey: 'siteId', as: 'site' });
   }
 }
 

@@ -2,9 +2,10 @@ const db = require("../models");
 const TaskHazard = db.task_hazards;
 const TaskRisk = db.task_risks;
 const User = db.user;
-const Notification = db.notifications;
 const SupervisorApproval = db.supervisor_approvals;
 const { successResponse, errorResponse, sendResponse, paginatedResponse } = require('../helper/responseHelper');
+const { getCompanyId, getSiteId } = require('../helper/controllerHelper');
+const { createNotification } = require("./notificationController");
 
 /**
  * Helper function to convert likelihood and consequence strings to integers
@@ -196,8 +197,8 @@ const formatTaskHazard = (taskHazard) => {
 /**
  * Helper function to find task hazard with company validation
  */
-const findTaskHazardByIdAndCompany = async (id, companyId, includeAssociations = true) => {
-  const whereClause = { id, companyId };
+const findTaskHazardByIdAndCompany = async (id, companyId, siteId, includeAssociations = true) => {
+  const whereClause = { id, companyId, siteId };
   const options = { where: whereClause };
   
   if (!includeAssociations) {
@@ -272,8 +273,8 @@ exports.create = async (req, res) => {
     transaction = await db.sequelize.transaction();
     
     // Validate user company/site access
-    const userCompanyId = req.user.company_id;
-    const userSiteId = req.user.site_id;
+    const userCompanyId = await getCompanyId(req);    
+    const userSiteId = await getSiteId(req);
 
     // Parse and validate individuals (database lookup)
     let individuals, supervisor;
@@ -331,6 +332,7 @@ exports.create = async (req, res) => {
 
       const supervisorApproval = await SupervisorApproval.create({
         taskHazardId: taskHazard.id,
+        siteId: userSiteId,
         supervisorId: supervisor.id,
         status: 'pending',
         taskHazardSnapshot,
@@ -338,12 +340,14 @@ exports.create = async (req, res) => {
       }, { transaction });
 
       // Create notification for supervisor
-      await Notification.create({
-        userId: supervisor.id,
-        title: "Task Hazard Pending Approval",
-        message: "A task hazard requires your approval. Please review the risks and take appropriate actions.",
-        type: "approval"
-      }, { transaction });
+      await createNotification(
+        userId = supervisor.id,
+        siteId = userSiteId,
+        title = "Task Hazard Pending Approval",
+        message = "A task hazard requires your approval. Please review the risks and take appropriate actions.",
+        type = "approval",
+        transaction = transaction
+      );
     }
     
     // Commit transaction
@@ -375,8 +379,8 @@ exports.create = async (req, res) => {
 exports.getAllApprovals = async (req, res) => {
   try {
     // Validate user company/site access
-    const userCompanyId = req.user.company_id;
-    const userSiteId = req.user.site_id;
+    const userCompanyId = await getCompanyId(req);
+    const userSiteId = await getSiteId(req);
     
     // Check if user has appropriate privileges
     const user = await User.findOne({
@@ -387,12 +391,8 @@ exports.getAllApprovals = async (req, res) => {
       return sendResponse(res, errorResponse("Access denied. Supervisor, admin, or superuser privileges required.", 403));
     }
 
-    // Determine if user is admin/superuser or just supervisor
-    const isAdminOrSuperuser = user.role === "admin" || user.role === "superuser";
     const isSupervisor = user.role === "supervisor";
 
-    // Parse query parameters for filtering
-    // Optional status filter
     const statusFilter = req.query.status;
     const whereClause = {};
     
@@ -416,7 +416,7 @@ exports.getAllApprovals = async (req, res) => {
         {
           model: TaskHazard,
           as: 'taskHazard',
-          where: userSiteId ? { siteId: userSiteId } : { companyId: userCompanyId },
+          where: { siteId: userSiteId },
           attributes: ['id', 'date', 'time', 'scopeOfWork', 'location', 'status'],
           include: [
             {
@@ -582,31 +582,23 @@ exports.getAllApprovals = async (req, res) => {
 exports.findAll = async (req, res) => {
   try {
     // Validate user company/site access
-    const userCompanyId = req.user.company_id;
-    const userSiteId = req.user.site_id;
+    const userCompanyId = await getCompanyId(req);
+    const userSiteId = await getSiteId(req);
     
     // Get pagination parameters
-    const { page, limit, offset } = req.pagination || { page: 1, limit: 100, offset: 0 };
+    // const { page, limit, offset } = req.pagination || { page: 1, limit: 100, offset: 0 };
     
-    // Fetch task hazards with optimized query and pagination
-    const { count, rows: taskHazards } = await TaskHazard.findAndCountAll({
-      where: userSiteId ? { siteId: userSiteId } : { companyId: userCompanyId },
-      limit,
-      offset,
-      order: [['createdAt', 'DESC']]
-      // Default scope automatically includes: company, risks, supervisor, individuals
+    const taskHazards = await TaskHazard.findAll({
+      where: { siteId: userSiteId }
     });
 
     // Format for frontend response
     const formattedTaskHazards = taskHazards.map(formatTaskHazard);
 
     // Send paginated response using helper
-    sendResponse(res, paginatedResponse(
-      formattedTaskHazards,
-      page,
-      limit,
-      count,
-      "Task Hazards retrieved successfully"
+    sendResponse(res, successResponse(
+      "Task Hazards retrieved successfully",
+      formattedTaskHazards
     ));
     
   } catch (error) {
@@ -626,13 +618,11 @@ exports.findAll = async (req, res) => {
 exports.findOne = async (req, res) => {
   try {
     // Validate user company/site access
-    const userCompanyId = req.user.company_id;
-    const userSiteId = req.user.site_id;
+    const userCompanyId = await getCompanyId(req);
+    const userSiteId = await getSiteId(req);
     
     // Find task hazard with site/company validation
-    const taskHazard = userSiteId
-      ? await TaskHazard.findOne({ where: { id: req.params.id, siteId: userSiteId } })
-      : await TaskHazard.findOne({ where: { id: req.params.id, companyId: userCompanyId } });
+    const taskHazard = await TaskHazard.findOne({ where: { id: req.params.id, siteId: userSiteId } });
 
     // Format for frontend response
     const formattedTaskHazard = formatTaskHazard(taskHazard);
@@ -668,8 +658,8 @@ exports.findOne = async (req, res) => {
 exports.update = async (req, res) => {
   try {
     // Validate user company/site access
-    const userCompanyId = req.user.company_id;
-    const userSiteId = req.user.site_id;
+    const userCompanyId = await getCompanyId(req);
+    const userSiteId = await getSiteId(req);
 
     const user = await User.findOne({
       where: {
@@ -681,9 +671,7 @@ exports.update = async (req, res) => {
     }
 
     // Find task hazard with site/company validation and current approval (before starting transaction)
-    const taskHazard = userSiteId
-      ? await TaskHazard.findOne({ where: { id: req.body.id, siteId: userSiteId } })
-      : await TaskHazard.findOne({ where: { id: req.body.id, companyId: userCompanyId } });
+    const taskHazard = await TaskHazard.findOne({ where: { id: req.body.id, siteId: userSiteId } })
 
     if(!taskHazard){
       return sendResponse(res, errorResponse("Task Hazard not found", 404));
@@ -766,6 +754,7 @@ exports.update = async (req, res) => {
           // Create new approval record
           const newApproval = await SupervisorApproval.create({
             taskHazardId: taskHazard.id,
+            siteId: userSiteId,
             supervisorId: supervisor.id,
             status: 'pending',
             taskHazardSnapshot,
@@ -778,29 +767,34 @@ exports.update = async (req, res) => {
           }, { transaction });
 
           // Create notification for supervisor (re-approval)
-          await Notification.create({
-            userId: supervisor.id,
-            title: "Task Hazard Requires Re-approval",
-            message: "A task hazard has been modified and requires your re-approval.",
-            type: "approval"
-          }, { transaction });
+          await createNotification(
+            userId = supervisor.id,
+            siteId = userSiteId,
+            title = "Task Hazard Requires Re-approval",
+            message = "A task hazard has been modified and requires your re-approval.",
+            type = "approval",
+            transaction = transaction
+          );
         } else {
           // No existing approval - create new one
           await SupervisorApproval.create({
             taskHazardId: taskHazard.id,
             supervisorId: supervisor.id,
+            siteId: userSiteId,
             status: 'pending',
             taskHazardSnapshot,
             risksSnapshot
           }, { transaction });
 
           // Create notification for supervisor (new approval)
-          await Notification.create({
-            userId: supervisor.id,
-            title: "Task Hazard Pending Approval",
-            message: "A task hazard requires your approval. Please review the risks and take appropriate actions.",
-            type: "approval"
-          }, { transaction });
+          await createNotification(
+            userId = supervisor.id,
+            siteId = userSiteId,
+            title = "Task Hazard Pending Approval",
+            message = "A task hazard requires your approval. Please review the risks and take appropriate actions.",
+            type = "approval",
+            transaction = transaction
+          );
         }
       }
 
@@ -836,8 +830,8 @@ exports.supervisorApproval = async (req, res) => {
   
   try {
     // Validate user company/site access
-    const userCompanyId = req.user.company_id;
-    const userSiteId = req.user.site_id;
+    const userCompanyId = await getCompanyId(req);
+    const userSiteId = await getSiteId(req);
     const user = await User.findOne({
       where: {
         id: req.user.id
@@ -848,7 +842,7 @@ exports.supervisorApproval = async (req, res) => {
       return sendResponse(res, errorResponse("Access denied. Supervisor privileges required to approve task hazards.", 403));
     }
 
-    const taskHazard = await findTaskHazardByIdAndCompany(req.body.id, userCompanyId);
+    const taskHazard = await findTaskHazardByIdAndCompany(req.body.id, userCompanyId, userSiteId);
     if(taskHazard.status !== "Pending"){
       return sendResponse(res, errorResponse("Task hazard is not pending approval.", 400));
     }
@@ -904,12 +898,14 @@ exports.supervisorApproval = async (req, res) => {
 
     // Create notifications for all individuals
     await Promise.all(updatedTaskHazard.individuals.map(async individual => {
-      await Notification.create({
-        userId: individual.id,
-        title: `Task Hazard ${approvalAction.charAt(0).toUpperCase() + approvalAction.slice(1)}`,
-        message: `A task hazard you are part of has been ${approvalAction} by your supervisor.`,
-        type: "hazard"
-      }, { transaction });
+      await createNotification(
+        userId= individual.id,
+        siteId = userSiteId,
+        title = `Task Hazard ${approvalAction.charAt(0).toUpperCase() + approvalAction.slice(1)}`,
+        message = `A task hazard you are part of has been ${approvalAction} by your supervisor.`,
+        type = "hazard",
+        transaction = transaction
+      );
     }));
 
     await transaction.commit();
@@ -953,10 +949,11 @@ exports.supervisorApproval = async (req, res) => {
 exports.getApprovalHistory = async (req, res) => {
   try {
     // Validate user company access
-    const userCompanyId = req.user.company_id;
+    const userCompanyId = await getCompanyId(req);
+    const userSiteId = await getSiteId(req);
     
     // Find task hazard with company validation
-    const taskHazard = await findTaskHazardByIdAndCompany(req.params.id, userCompanyId, false);
+    const taskHazard = await findTaskHazardByIdAndCompany(req.params.id, userCompanyId, userSiteId, false);
 
     // Get all approval records for this task hazard (including invalidated ones)
     const approvalHistory = await SupervisorApproval.findAll({
@@ -1030,8 +1027,8 @@ exports.getApprovalHistory = async (req, res) => {
 exports.delete = async (req, res) => {
   try {
     // Validate user company access
-    const userCompanyId = req.user.company_id;
-    const userSiteId = req.user.site_id;
+    const userCompanyId = await getCompanyId(req);
+    const userSiteId = await getSiteId(req);
     const id = req.params.id;
     
     // Find task hazard with company validation

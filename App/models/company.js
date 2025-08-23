@@ -41,7 +41,7 @@ class Company extends Sequelize.Model {
     });
 
     this.hasMany(models.site, {
-      foreignKey: 'company_id',
+      foreignKey: 'companyId',
       as: 'sites'
     });
   }

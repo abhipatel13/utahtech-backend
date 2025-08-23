@@ -401,8 +401,84 @@ async function checkAndAddAssetsToDatabase(db, assetDataPath) {
     
     // Bulk create all assets
     if (assetsToCreate.length > 0) {
-      await db.asset_hierarchy.bulkCreate(assetsToCreate);
-      console.log(`Successfully added ${assetsToCreate.length} assets to database.`);
+      // Ensure at least one site exists per company; stamp siteId using multiple fields
+      const companies = await db.company.findAll();
+      const sitesByCompany = {};
+      for (const c of companies) {
+        let sites = await db.site.findAll({ where: { companyId: c.id } });
+        if (!sites || sites.length === 0) {
+          const defaultSite = await db.site.create({ name: c.name, companyId: c.id });
+          sites = [defaultSite];
+        }
+        sitesByCompany[c.id] = sites;
+      }
+
+      // Prepare helper to pick a site by heuristic
+      const pickSite = (asset) => {
+        const sites = sitesByCompany[asset.companyId] || [];
+        if (!sites || sites.length === 0) return null;
+        const fields = [asset.maintenancePlant || '', asset.functionalLocation || '', asset.functionalLocationDesc || '', asset.name || ''];
+        let matchedSite = null;
+        for (const s of sites) {
+          const sname = (s.name || '').toLowerCase();
+          if (fields.some(f => (f || '').toLowerCase().includes(sname))) { matchedSite = s; break; }
+        }
+        return matchedSite || sites[0];
+      };
+
+      // Build id -> asset map
+      const byId = new Map();
+      for (const a of assetsToCreate) byId.set(a.id, a);
+
+      // First, assign sites to root assets (no parent) by heuristic
+      for (const asset of assetsToCreate) {
+        if (!asset.parent) {
+          const site = pickSite(asset);
+          if (!site) {
+            console.warn(`Root asset ${asset.id}: no site available for company ${asset.companyId}`);
+          } else {
+            asset.siteId = site.id;
+          }
+        }
+      }
+
+      // Then, propagate parent's site to all descendants (override any heuristic mismatch)
+      const assignFromParent = (asset) => {
+        if (!asset.parent) return;
+        const parent = byId.get(asset.parent);
+        if (parent) {
+          assignFromParent(parent);
+          asset.siteId = parent.siteId;
+        } else {
+          // Orphaned parent reference: fallback to heuristic
+          const site = pickSite(asset);
+          asset.siteId = site ? site.id : null;
+        }
+      };
+
+      for (const asset of assetsToCreate) {
+        assignFromParent(asset);
+        // Ensure any remaining unset site gets a heuristic pick
+        if (!asset.siteId) {
+          const s = pickSite(asset);
+          if (!s) {
+            console.warn(`Asset ${asset.id}: unable to resolve site; skipping`);
+          } else {
+            asset.siteId = s.id;
+          }
+        }
+      }
+
+      const creatable = assetsToCreate.filter(a => a.siteId);
+      if (creatable.length !== assetsToCreate.length) {
+        console.warn(`Skipping ${assetsToCreate.length - creatable.length} assets without resolved siteId.`);
+      }
+      if (creatable.length > 0) {
+        await db.asset_hierarchy.bulkCreate(creatable);
+        console.log(`Successfully added ${creatable.length} assets to database.`);
+      } else {
+        console.warn('No assets inserted due to unresolved site assignments.');
+      }
     }
     
   } catch (error) {

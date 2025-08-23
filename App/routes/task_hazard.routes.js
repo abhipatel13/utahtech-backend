@@ -10,8 +10,7 @@ const {
   requireJsonBody,
   sanitizeInputs,
   validateDateTime,
-  validateArray,
-  validatePagination
+  validateArray
 } = require('../middleware/validation');
 
 // Apply middleware to all routes
@@ -50,9 +49,8 @@ router.get("/:id/approval-history",
   task_hazards.getApprovalHistory
 );
 
-// Retrieve all Task Hazards with pagination
+// Retrieve all Task Hazards
 router.get("/", 
-  validatePagination(),
   task_hazards.findAll
 );
 

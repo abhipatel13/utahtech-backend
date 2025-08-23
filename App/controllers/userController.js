@@ -4,10 +4,13 @@ const { Op } = require('sequelize');
 const bcrypt = require("bcryptjs");
 const { successResponse, errorResponse, sendResponse } = require('../helper/responseHelper');
 const { isValidEmail, isValidRole } = require('../helper/validationHelper');
+const { getSiteId, getCompanyId } = require('../helper/controllerHelper');
 
 module.exports.createUser = async (req, res) => {
   try {
     const { email, password, role } = req.body;
+    const companyId = await getCompanyId(req);
+    const siteId = await getSiteId(req);
 
     // Validate required fields
     if (!email || !password || !role) {
@@ -46,7 +49,8 @@ module.exports.createUser = async (req, res) => {
       email,
       password: hashedPassword,
       role,
-      company_id: req.user.company_id
+      company_id: companyId,
+      site_id: siteId
     };
 
     // Create new user
@@ -80,6 +84,7 @@ module.exports.createUser = async (req, res) => {
 
 module.exports.getAllUser = async (req, res) => {
   try {
+    const siteId = await getSiteId(req);
     // Check if user has permission to view all users
     if (!req.user || !['admin', 'superuser'].includes(req.user.role)) {
       const response = errorResponse("Access denied. Admin privileges required to view all users.", 403);
@@ -96,8 +101,7 @@ module.exports.getAllUser = async (req, res) => {
         },
       ],
       where: {
-        deleted_at: null, 
-        company_id: req.user.company_id 
+        site_id: siteId 
       }
     });
 
@@ -115,8 +119,7 @@ module.exports.getAllUserRestricted = async (req, res) => {
   try {
     const result = await User.scope('basic').findAll({
       where: {
-        company_id: req.user.company_id,
-        deleted_at: null
+        site_id: req.user.site_id
       }
     });
 

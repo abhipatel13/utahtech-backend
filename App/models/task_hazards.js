@@ -21,7 +21,7 @@ class TaskHazard extends Sequelize.Model {
       },
       siteId: {
         type: DataTypes.INTEGER,
-        allowNull: true,
+        allowNull: false,
         field: 'site_id',
         references: {
           model: 'sites',
@@ -58,7 +58,7 @@ class TaskHazard extends Sequelize.Model {
         field: 'system_lockout_required'
       },
       trainedWorkforce: {
-        type: DataTypes.STRING,
+        type: DataTypes.BOOLEAN,
         allowNull: false,
         field: 'trained_workforce'
       },

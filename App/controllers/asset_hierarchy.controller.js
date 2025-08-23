@@ -3,6 +3,7 @@ const { Op } = require('sequelize');
 const csv = require('csv-parse/sync');
 const { successResponse, errorResponse, sendResponse } = require('../helper/responseHelper');
 const { sanitizeInput } = require('../helper/validationHelper');
+const { getCompanyId, getSiteId } = require('../helper/controllerHelper');
 
 const AssetHierarchy = db.asset_hierarchy;
 const TaskHazards = db.task_hazards;
@@ -17,8 +18,8 @@ const User = db.user;
 exports.create = async (req, res) => {
   try {
     // Get user's company/site context
-    const userCompanyId = req.user.company_id;
-    const userSiteId = req.user.site_id;
+    const userCompanyId = await getCompanyId(req);
+    const userSiteId = await getSiteId(req);
     if (!userCompanyId) {
       const response = errorResponse("User's company information is missing", 400);
       return sendResponse(res, response);
@@ -593,10 +594,10 @@ const recalculateHierarchyLevels = async (userCompanyId, userSiteId, transaction
 exports.uploadCSV = async (req, res) => {
   try {
     // Get user's company/site context
-    const userCompanyId = req.user.company_id;
-    const userSiteId = req.user.site_id;
-    if (!userCompanyId) {
-      const response = errorResponse("User's company information is missing", 400);
+    const userCompanyId = await getCompanyId(req);
+    const userSiteId = await getSiteId(req);
+    if (!userSiteId || !userCompanyId) {
+      const response = errorResponse("User's company/site information is missing", 400);
       return sendResponse(res, response);
     }
 
@@ -650,16 +651,16 @@ exports.uploadCSV = async (req, res) => {
 exports.findAll = async (req, res) => {
   try {
     // Get user's company ID
-    const userCompanyId = req.user.company_id;
-    if (!userCompanyId) {
-      const response = errorResponse("User's company information is missing", 400);
+    const userSiteId = await getSiteId(req);
+    if (!userSiteId) {
+      const response = errorResponse("User's site information is missing", 400);
       return sendResponse(res, response);
     }
 
     const assets = await AssetHierarchy.findAll({
       order: [['level', 'ASC'], ['name', 'ASC']],
       where: {
-        companyId: userCompanyId
+        siteId: userSiteId
       }
     });
 
@@ -683,16 +684,16 @@ exports.findAll = async (req, res) => {
 exports.findOne = async (req, res) => {
   try {
     // Get user's company ID
-    const userCompanyId = req.user.company_id;
-    if (!userCompanyId) {
-      const response = errorResponse("User's company information is missing", 400);
+    const userSiteId = await getSiteId(req);
+    if (!userSiteId) {
+      const response = errorResponse("User's site information is missing", 400);
       return sendResponse(res, response);
     }
 
     const asset = await AssetHierarchy.findOne({
       where: {
         id: req.params.id,
-        companyId: userCompanyId // Ensure user can only access their company's assets
+        siteId: userSiteId // Ensure user can only access their site's assets
       },
       include: [{
         model: AssetHierarchy,
@@ -729,15 +730,15 @@ exports.findOne = async (req, res) => {
 exports.getUploadHistory = async (req, res) => {
   try {
     // Get user's company ID
-    const userCompanyId = req.user.company_id;
-    if (!userCompanyId) {
-      const response = errorResponse("User's company information is missing", 400);
+    const userSiteId = await getSiteId(req);
+    if (!userSiteId) {
+      const response = errorResponse("User's site information is missing", 400);
       return sendResponse(res, response);
     }
 
     const uploads = await FileUpload.findAll({
       where: {
-        companyId: userCompanyId
+        siteId: userSiteId
       },
       include: [{
         model: User,
@@ -770,6 +771,7 @@ exports.getUploadHistory = async (req, res) => {
         fileName: upload.originalName,
         fileType: upload.fileType,
         fileSize: upload.fileSize,
+        siteId: upload.siteId,
         status: upload.status,
         errorMessage: upload.errorMessage, // Full error message
         errorSummary: errorSummary, // Short summary for display
@@ -799,9 +801,9 @@ exports.getUploadHistory = async (req, res) => {
 exports.getUploadStatus = async (req, res) => {
   try {
     // Get user's company ID
-    const userCompanyId = req.user.company_id;
-    if (!userCompanyId) {
-      const response = errorResponse("User's company information is missing", 400);
+    const userSiteId = await getSiteId(req);
+    if (!userSiteId) {
+      const response = errorResponse("User's site information is missing", 400);
       return sendResponse(res, response);
     }
 
@@ -814,7 +816,7 @@ exports.getUploadStatus = async (req, res) => {
     const upload = await FileUpload.findOne({
       where: {
         id: uploadId,
-        companyId: userCompanyId
+        siteId: userSiteId
       },
       include: [{
         model: User,
@@ -849,6 +851,7 @@ exports.getUploadStatus = async (req, res) => {
       fileName: upload.originalName,
       fileType: upload.fileType,
       fileSize: upload.fileSize,
+      siteId: upload.siteId,
       status: upload.status,
       errorMessage: upload.errorMessage, // Full detailed error message
       errorSummary: errorSummary, // Short summary for display

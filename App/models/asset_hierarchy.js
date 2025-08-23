@@ -20,7 +20,7 @@ class AssetHierarchy extends Sequelize.Model {
       siteId: {
         type: Sequelize.INTEGER,
         field: 'site_id',
-        allowNull: true,
+        allowNull: false,
         references: {
           model: 'sites',
           key: 'id'
