@@ -140,6 +140,11 @@ module.exports.getAllUsersAllCompanies = async (req, res) => {
           model: Company,
           as: 'company',
           attributes: ['id', 'name']
+        },
+        {
+          model: Site,
+          as: 'site',
+          attributes: ['id', 'name']
         }
       ],
       attributes: { exclude: ['password'] },
@@ -147,6 +152,7 @@ module.exports.getAllUsersAllCompanies = async (req, res) => {
       offset: parseInt(offset),
       order: [['createdAt', 'DESC']]
     });
+    console.log("users:", users.rows[1]);
 
     const response = successResponse('Users retrieved successfully', {
       users: users.rows,

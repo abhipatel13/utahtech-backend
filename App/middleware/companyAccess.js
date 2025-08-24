@@ -9,8 +9,16 @@ const ensureCompanyAccess = (model) => {
                 });
             }
 
+            let whereClause = {};
+
             // Universal users have unrestricted access to all companies
             if (req.user.role === 'universal_user') {
+                if (req.params.company_id) {
+                    whereClause.companyId = req.params.company_id;
+                } else if (req.params.site_id) {
+                    whereClause.siteId = req.params.site_id;
+                }
+                req.whereClause = whereClause;
                 return next();
             }
 
@@ -31,28 +39,31 @@ const ensureCompanyAccess = (model) => {
                 });
             }
 
-            // For create/update operations, automatically set the company
-            if (['POST', 'PUT', 'PATCH'].includes(req.method)) {
-                if (!req.body) {
-                    req.body = {};
-                }
+            // // For create/update operations, automatically set the company
+            // if (['POST', 'PUT', 'PATCH'].includes(req.method)) {
+            //     if (!req.body) {
+            //         req.body = {};
+            //     }
                 
-                // Prevent users from setting different company_id
-                if (req.body.company_id && req.body.company_id !== userCompanyId) {
-                    return res.status(403).json({
-                        status: false,
-                        message: 'Access denied: Cannot access different company data'
-                    });
-                }
+            //     // Prevent users from setting different company_id
+            //     if (req.body.company_id && req.body.company_id !== userCompanyId) {
+            //         return res.status(403).json({
+            //             status: false,
+            //             message: 'Access denied: Cannot access different company data'
+            //         });
+            //     }
                 
-                // Set company_id for the user's company
-                req.body.company_id = userCompanyId;
-                req.body.site_id = userSiteId;
-            }
+            //     // Set company_id for the user's company
+            //     req.body.company_id = userCompanyId;
+            //     req.body.site_id = userSiteId;
+            // }
             
             // Store company context for use in controllers
             req.userCompanyId = userCompanyId;
             req.userSiteId = userSiteId;
+            whereClause.companyId = userCompanyId;
+            whereClause.siteId = userSiteId;
+            req.whereClause = whereClause;
             
             next();
         } catch (error) {

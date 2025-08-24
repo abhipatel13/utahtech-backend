@@ -11,9 +11,14 @@ const {
   sanitizeInputs
 } = require('../middleware/validation');
 const userCtr = require('../controllers/userController');
+const { ensureCompanyAccess } = require('../middleware/companyAccess');
 
 // Get all users (with full data)
-router.get('/getAllUser', auth, requireRole(['admin', 'superuser']), userCtr.getAllUser);
+router.get('/getAllUser',
+   auth, 
+   ensureCompanyAccess(''),
+   requireRole(['admin', 'superuser', 'universal_user']), 
+   userCtr.getAllUser);
 
 // Get all users (restricted data)
 router.get('/getAllUserRestricted', auth, userCtr.getAllUserRestricted);

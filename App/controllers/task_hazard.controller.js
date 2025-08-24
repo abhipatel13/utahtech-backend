@@ -582,23 +582,48 @@ exports.getAllApprovals = async (req, res) => {
 exports.findAll = async (req, res) => {
   try {
     // Validate user company/site access
-    const userCompanyId = await getCompanyId(req);
-    const userSiteId = await getSiteId(req);
+    if (!req.whereClause) {
+      const response = errorResponse("User's company/site information is missing", 400);
+      return sendResponse(res, response);
+    }
+
+    let whereClause = req.whereClause;
     
     // Get pagination parameters
-    // const { page, limit, offset } = req.pagination || { page: 1, limit: 100, offset: 0 };
+    const { page, limit, offset } = req.pagination || { page: 1, limit: 100, offset: 0 }; 
     
-    const taskHazards = await TaskHazard.findAll({
-      where: { siteId: userSiteId }
+    // Fetch task hazards with optimized query and pagination 
+    const { count, rows: taskHazards } = await TaskHazard.findAndCountAll({
+      where: whereClause,
+      limit,
+      offset,
+      order: [['createdAt', 'DESC']],
+      include: [
+        {
+          model: db.company,
+          as: 'company',
+          attributes: ['id', 'name'],
+          required: false
+        },
+        {
+          model: db.site,
+          as: 'site',
+          attributes: ['id', 'name'],
+          required: false
+        }
+      ]
     });
 
     // Format for frontend response
     const formattedTaskHazards = taskHazards.map(formatTaskHazard);
 
     // Send paginated response using helper
-    sendResponse(res, successResponse(
-      "Task Hazards retrieved successfully",
-      formattedTaskHazards
+    sendResponse(res, paginatedResponse(
+      formattedTaskHazards,
+      page,
+      limit,
+      count,
+      "Task Hazards retrieved successfully"
     ));
     
   } catch (error) {
@@ -611,6 +636,82 @@ exports.findAll = async (req, res) => {
 };
 
 /**
+ * Find Task Hazards by Company ID (for universal users only)
+ * @param {object} req - Express request object
+ * @param {object} res - Express response object
+ */
+exports.findByCompany = async (req, res) => {
+  try {
+    const { company_id } = req.params;
+    
+    // Only universal users can access this endpoint
+    if (req.user?.role !== 'universal_user') {
+      const response = errorResponse("Access denied. Universal user role required.", 403);
+      return sendResponse(res, response);
+    }
+
+    // Validate company_id parameter
+    if (!company_id) {
+      const response = errorResponse("Company ID is required", 400);
+      return sendResponse(res, response);
+    }
+
+    // Get pagination parameters
+    const { page, limit, offset } = req.pagination || { page: 1, limit: 100, offset: 0 };
+    
+    // Build where clause based on company selection
+    let whereClause = {};
+    
+    if (company_id !== 'all') {
+      // Validate that company_id is a number
+      const companyIdNum = parseInt(company_id);
+      if (isNaN(companyIdNum)) {
+        const response = errorResponse("Invalid company ID format", 400);
+        return sendResponse(res, response);
+      }
+      whereClause.companyId = companyIdNum;
+    }
+    // If company_id is 'all', no filtering is applied (empty whereClause)
+
+    const { count, rows: taskHazards } = await TaskHazard.findAndCountAll({
+      where: whereClause,
+      limit,
+      offset,
+      order: [['createdAt', 'DESC']],
+      include: [
+        {
+          model: db.company,
+          as: 'company',
+          attributes: ['id', 'name'],
+          required: false
+        }
+      ]
+    });
+
+    // Format for frontend response
+    const formattedTaskHazards = taskHazards.map(formatTaskHazard);
+
+    // Send paginated response using helper
+    sendResponse(res, paginatedResponse(
+      formattedTaskHazards,
+      page,
+      limit,
+      count,
+      company_id === 'all' 
+        ? "All task hazards retrieved successfully" 
+        : `Task hazards for company ${company_id} retrieved successfully`
+    ));
+  } catch (error) {
+    console.error('Error retrieving task hazards by company:', error);
+    const response = errorResponse(
+      error.message || "Some error occurred while retrieving task hazards by company.",
+      500
+    );
+    sendResponse(res, response);
+  }
+};
+
+/**
  * Find a single Task Hazard by ID with company validation
  * Returns formatted data including all associated individuals from junction table
  * Optional query parameter: includeApprovalInfo=true to include approval details
@@ -618,11 +719,16 @@ exports.findAll = async (req, res) => {
 exports.findOne = async (req, res) => {
   try {
     // Validate user company/site access
-    const userCompanyId = await getCompanyId(req);
-    const userSiteId = await getSiteId(req);
+    if (!req.whereClause) {
+      const response = errorResponse("User's company/site information is missing", 400);
+      return sendResponse(res, response);
+    }
+
+    let whereClause = req.whereClause;
+    whereClause.id = req.params.id;
     
     // Find task hazard with site/company validation
-    const taskHazard = await TaskHazard.findOne({ where: { id: req.params.id, siteId: userSiteId } });
+    const taskHazard = await TaskHazard.findOne({ where: whereClause });
 
     // Format for frontend response
     const formattedTaskHazard = formatTaskHazard(taskHazard);

@@ -13,6 +13,11 @@ const {
 
 // Apply middleware to all routes
 router.use(auth);
+
+// Universal user route - bypasses company access
+router.get("/universal", tactics.findAllUniversal);
+
+// Apply company access middleware to other routes
 router.use(ensureCompanyAccess('tactics'));
 
 // Create a new Tactic
@@ -25,6 +30,18 @@ router.post('/',
 
 // Retrieve all Tactics
 router.get('/', tactics.findAll);
+
+// Get tactics by company (for universal users only)
+router.get('/company/:company_id',
+  requireRole(['universal_user']),
+  tactics.findAll
+);
+
+// Get tactics by site (for universal users only)
+router.get('/site/:site_id',
+  requireRole(['universal_user']),
+  tactics.findAll
+);
 
 // Retrieve a single Tactic with id
 router.get('/:id', 

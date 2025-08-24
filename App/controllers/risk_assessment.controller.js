@@ -272,14 +272,16 @@ exports.create = async (req, res) => {
  */
 exports.findAll = async (req, res) => {
   try {
-    // Validate user company access
-    const userCompanyId = await getCompanyId(req);
-    const userSiteId = await getSiteId(req);
+    if (!req.whereClause) {
+      const response = errorResponse("User's company/site information is missing", 400);
+      return sendResponse(res, response);
+    }
+
+    let whereClause = req.whereClause;
     
     // Fetch risk assessments with optimized query (default scope includes all needed associations)
     const riskAssessments = await RiskAssessment.findAll({
-      where: { siteId: userSiteId }
-      // Default scope automatically includes: company, supervisor, individuals
+      where: whereClause
     });
 
     // Format for frontend response
@@ -294,6 +296,40 @@ exports.findAll = async (req, res) => {
     console.error('Error retrieving risk assessments:', error);
     sendResponse(res, errorResponse(
       error.message || "Some error occurred while retrieving risk assessments.",
+      500
+    ));
+  }
+};
+
+/**
+ * Retrieve all Risk Assessments from all companies (Universal User Access)
+ * Bypasses company access restrictions for universal users
+ */
+exports.findAllUniversal = async (req, res) => {
+  try {
+    // Check if user is a universal user
+    if (req.user.role !== 'universal_user') {
+      return sendResponse(res, errorResponse(
+        'Access denied. Only universal users can access all risk assessments.',
+        403
+      ));
+    }
+    
+    // Fetch risk assessments from all companies with optimized query
+    const riskAssessments = await RiskAssessment.findAll({});
+
+    // Format for frontend response
+    const formattedRiskAssessments = riskAssessments.map(formatRiskAssessment);
+
+    sendResponse(res, successResponse(
+      "All Risk Assessments retrieved successfully for universal user",
+      formattedRiskAssessments
+    ));
+    
+  } catch (error) {
+    console.error('Error retrieving all risk assessments:', error);
+    sendResponse(res, errorResponse(
+      error.message || "Some error occurred while retrieving all risk assessments.",
       500
     ));
   }

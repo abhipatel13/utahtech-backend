@@ -15,6 +15,11 @@ const {
 
 // Apply middleware to all routes
 router.use(auth);
+
+// Universal user route - bypasses company access
+router.get("/universal", risk_assessments.findAllUniversal);
+
+// Apply company access middleware to other routes
 router.use(ensureCompanyAccess('risk_assessments'));
 
 // Create a new Risk Assessment
@@ -29,6 +34,22 @@ router.post("/",
 
 // Retrieve all Risk Assessments
 router.get("/", risk_assessments.findAll);
+
+// Get risk assessments by company (for universal users only)
+router.get("/company/:company_id",
+  requireRole(['universal_user']),
+  // validatePagination(),
+  risk_assessments.findAll
+);
+
+
+// Get risk assessments by site (for universal users only)
+router.get("/site/:site_id",
+  requireRole(['universal_user']),
+  // validatePagination(),
+  risk_assessments.findAll
+);
+
 
 // Retrieve a single Risk Assessment with id
 router.get("/:id", 

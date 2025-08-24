@@ -32,8 +32,6 @@ module.exports.login = async (req, res) => {
 			}
 		});
 
-		console.log(user);
-
 		if (!user) {
 			const response = errorResponse("Invalid email or password", 401);
 			return sendResponse(res, response);
