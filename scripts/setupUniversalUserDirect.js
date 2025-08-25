@@ -3,19 +3,15 @@ const bcrypt = require('bcryptjs');
 
 const setupUniversalUser = async () => {
   try {
-    console.log('🚀 Setting up Universal User directly...');
-
     // Get the sequelize instance
     const sequelize = models.sequelize;
 
     // First, try to alter the users table to allow company_id to be nullable
     try {
-      console.log('📝 Updating users table schema...');
       await sequelize.query(`
         ALTER TABLE users 
         MODIFY COLUMN company_id INT NULL
       `);
-      console.log('✅ Successfully updated users table schema');
     } catch (error) {
       console.log('⚠️  Schema might already be updated:', error.message);
     }

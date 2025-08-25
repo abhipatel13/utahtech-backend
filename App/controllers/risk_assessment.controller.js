@@ -502,4 +502,51 @@ exports.delete = async (req, res) => {
       500
     ));
   }
+};
+
+/**
+ * Delete a Risk Assessment from any company (Universal User only)
+ * Bypasses company access restrictions for universal users
+ */
+exports.deleteUniversal = async (req, res) => {
+  try {
+    // Only universal users can access this endpoint
+    if (req.user.role !== 'universal_user') {
+      return sendResponse(res, errorResponse(
+        'Access denied. Only universal users can delete risk assessments across companies.',
+        403
+      ));
+    }
+
+    const id = req.params.id;
+    
+    // Find risk assessment without company validation (universal access)
+    const riskAssessment = await RiskAssessment.findByPk(id);
+    
+    if (!riskAssessment) {
+      return sendResponse(res, errorResponse("Risk Assessment not found", 404));
+    }
+
+    // Delete within transaction for data consistency
+    await db.sequelize.transaction(async (transaction) => {
+      // Delete associated risks (foreign key constraint requires this first)
+      await RiskAssessmentRisk.destroy({
+        where: { riskAssessmentId: id },
+        transaction
+      });
+
+      // Delete the risk assessment (junction table entries will be cascade deleted)
+      await riskAssessment.destroy({ transaction });
+    });
+
+    sendResponse(res, successResponse("Risk Assessment deleted successfully by universal user"));
+
+  } catch (error) {
+    console.error('Error deleting risk assessment (universal):', error);
+    
+    sendResponse(res, errorResponse(
+      error.message || "Some error occurred while deleting the Risk Assessment.",
+      500
+    ));
+  }
 }; 

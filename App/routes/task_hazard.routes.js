@@ -17,8 +17,13 @@ const {
 // Apply middleware to all routes
 router.use(auth);
 
-// Universal user route - bypasses company access
+// Universal user routes - bypass company access
 router.get("/universal", task_hazards.findAll);
+router.delete("/universal/:id", 
+  validateIdParam('id'),
+  requireRole(['universal_user']),
+  task_hazards.deleteUniversal
+);
 
 // Apply company access middleware to other routes
 router.use(ensureCompanyAccess('task_hazards'));

@@ -1034,3 +1034,50 @@ exports.getUploadStatus = async (req, res) => {
 //   // Finally, delete the current asset
 //   await asset.destroy({ transaction: transaction });
 // };
+
+/**
+ * Delete an Asset from any company (Universal User only)
+ * Bypasses company access restrictions for universal users
+ */
+exports.deleteUniversal = async (req, res) => {
+  try {
+    // Only universal users can access this endpoint
+    if (req.user.role !== 'universal_user') {
+      return sendResponse(res, errorResponse(
+        'Access denied. Only universal users can delete assets across companies.',
+        403
+      ));
+    }
+
+    const id = req.params.id;
+    
+    // Find asset without company validation (universal access)
+    const asset = await AssetHierarchy.findByPk(id);
+    
+    if (!asset) {
+      return sendResponse(res, errorResponse("Asset not found", 404));
+    }
+
+    // For now, do a simple delete without recursive deletion
+    // In a production system, you might want to handle child assets differently
+    await asset.destroy();
+
+    sendResponse(res, successResponse("Asset deleted successfully by universal user"));
+
+  } catch (error) {
+    console.error('Error deleting asset (universal):', error);
+    
+    // Handle foreign key constraint errors
+    if (error.name === 'SequelizeForeignKeyConstraintError') {
+      return sendResponse(res, errorResponse(
+        'Cannot delete asset. It may be referenced by other records or have child assets.',
+        409
+      ));
+    }
+    
+    sendResponse(res, errorResponse(
+      error.message || "Some error occurred while deleting the Asset.",
+      500
+    ));
+  }
+};

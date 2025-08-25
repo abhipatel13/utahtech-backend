@@ -1151,3 +1151,50 @@ exports.delete = async (req, res) => {
     ));
   }
 };
+
+/**
+ * Delete a Task Hazard from any company (Universal User only)
+ * Bypasses company access restrictions for universal users
+ */
+exports.deleteUniversal = async (req, res) => {
+  try {
+    // Only universal users can access this endpoint
+    if (req.user.role !== 'universal_user') {
+      return sendResponse(res, errorResponse(
+        'Access denied. Only universal users can delete task hazards across companies.',
+        403
+      ));
+    }
+
+    const id = req.params.id;
+    
+    // Find task hazard without company validation (universal access)
+    const taskHazard = await TaskHazard.findByPk(id);
+    
+    if (!taskHazard) {
+      return sendResponse(res, errorResponse("Task Hazard not found", 404));
+    }
+
+    // Delete within transaction for data consistency
+    await db.sequelize.transaction(async (transaction) => {
+      // Delete associated risks (foreign key constraint requires this first)
+      await TaskRisk.destroy({
+        where: { taskHazardId: id },
+        transaction
+      });
+
+      // Delete the task hazard (junction table entries will be cascade deleted)
+      await taskHazard.destroy({ transaction });
+    });
+
+    sendResponse(res, successResponse("Task Hazard deleted successfully by universal user"));
+
+  } catch (error) {
+    console.error('Error deleting task hazard (universal):', error);
+    
+    sendResponse(res, errorResponse(
+      error.message || "Some error occurred while deleting the Task Hazard.",
+      500
+    ));
+  }
+};

@@ -16,6 +16,14 @@ const {
 const { errorResponse, sendResponse } = require('../helper/responseHelper');
 
 router.use(auth);
+
+// Universal user routes - bypass company access
+router.delete("/universal/:id", 
+  validateIdParam('id'),
+  requireRole(['universal_user']),
+  assetHierarchyController.deleteUniversal
+);
+
 router.use(ensureCompanyAccess('asset_hierarchy'));
 
 // Configure multer for file upload
