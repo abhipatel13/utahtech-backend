@@ -8,9 +8,17 @@ const ensureCompanyAccess = (model) => {
                     message: 'Authentication required'
                 });
             }
+            let whereClause = {};
+            if (!req.whereClause) {
+                req.whereClause = {};
+            }
 
             // Universal users have unrestricted access to all companies
             if (req.user.role === 'universal_user') {
+                if (req.params.company_id) {
+                    whereClause.company_id = req.params.company_id;
+                }
+                req.whereClause = whereClause;
                 return next();
             }
 
@@ -27,11 +35,6 @@ const ensureCompanyAccess = (model) => {
                     message: 'Access denied: User company information missing'
                 });
             }
-
-            // Superusers can access any company data
-            if (req.user.role === 'superuser') {
-                return next();
-            }
             
             // For non-superusers, enforce company access restrictions
             // Add company filter to query parameters for GET requests
@@ -44,8 +47,8 @@ const ensureCompanyAccess = (model) => {
                     req.query.where = {};
                 }
                 
-                // Use company_id for consistency with database schema
                 req.query.where.company_id = userCompanyId;
+                req.whereClause.company_id = userCompanyId;
             }
             
             // For create/update operations, automatically set the company
@@ -54,15 +57,6 @@ const ensureCompanyAccess = (model) => {
                     req.body = {};
                 }
                 
-                // Prevent users from setting different company_id
-                if (req.body.company_id && req.body.company_id !== userCompanyId) {
-                    return res.status(403).json({
-                        status: false,
-                        message: 'Access denied: Cannot access different company data'
-                    });
-                }
-                
-                // Set company_id for the user's company
                 req.body.company_id = userCompanyId;
             }
             

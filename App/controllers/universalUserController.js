@@ -147,8 +147,23 @@ module.exports.getAllUsersAllCompanies = async (req, res) => {
       order: [['createdAt', 'DESC']]
     });
 
+    let usersData = [];
+    for (const user of users.rows) {
+      let userData = {
+        id: user.id,
+        email: user.email,
+        name: user.name,
+        role: user.role,
+        company_id: user.company_id,
+        company: user.company,
+        department: user.department,
+        phone: user.phone_no
+      };
+      usersData.push(userData);
+    }
+
     const response = successResponse('Users retrieved successfully', {
-      users: users.rows,
+      users: usersData,
       pagination: {
         currentPage: parseInt(page),
         totalPages: Math.ceil(users.count / limit),

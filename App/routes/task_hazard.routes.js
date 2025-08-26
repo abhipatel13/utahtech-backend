@@ -11,14 +11,18 @@ const {
   sanitizeInputs,
   validateDateTime,
   validateArray,
-  validatePagination
+  validatePagination,
+  validateSearch
 } = require('../middleware/validation');
 
 // Apply middleware to all routes
 router.use(auth);
 
 // Universal user routes - bypass company access
-router.get("/universal", task_hazards.findAll);
+router.get("/universal",
+  requireRole(['universal_user']),
+  validatePagination(),
+  task_hazards.findAll);
 router.delete("/universal/:id", 
   validateIdParam('id'),
   requireRole(['universal_user']),
@@ -63,6 +67,7 @@ router.get("/:id/approval-history",
 // Retrieve all Task Hazards with pagination
 router.get("/", 
   validatePagination(),
+  validateSearch(),
   task_hazards.findAll
 );
 

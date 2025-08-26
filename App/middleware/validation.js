@@ -71,7 +71,9 @@ exports.validatePagination = () => {
     const limit = Math.min(100, Math.max(1, parseInt(req.query.limit) || 100));
     const offset = (page - 1) * limit;
     
-    req.pagination = { page, limit, offset };
+    req.query.page = page;
+    req.query.limit = limit;
+    req.query.offset = offset;
     next();
   };
 };
@@ -221,90 +223,18 @@ exports.validateArray = (fieldName, required = false) => {
 };
 
 /**
- * Middleware to validate and process search parameters for various controllers
+ * Middleware to validate and process search parameters
  * @returns {function} Express middleware function
  */
 exports.validateSearch = () => {
   return (req, res, next) => {
     const { 
-      search, level, systemStatus, objectType, maintenancePlant,
-      status, dateFrom, dateTo, riskType, supervisor, individual,
-      location, assetSystem, systemLockoutRequired, riskSeverity,
-      mitigationStatus, createdAfter, createdBefore, sortBy, sortDirection
+      search
     } = req.query;
-    
-    // Validate level if provided (for asset hierarchy)
-    if (level && (isNaN(parseInt(level)) || parseInt(level) < 0)) {
-      const error = errorResponse('Level must be a non-negative integer', 400);
-      return res.status(error.statusCode).json(error);
-    }
-    
-    // Validate date formats
-    const dateFields = { dateFrom, dateTo, createdAfter, createdBefore };
-    for (const [fieldName, dateValue] of Object.entries(dateFields)) {
-      if (dateValue && isNaN(Date.parse(dateValue))) {
-        const error = errorResponse(`${fieldName} must be a valid date`, 400);
-        return res.status(error.statusCode).json(error);
-      }
-    }
-    
-    // Validate boolean fields
-    if (systemLockoutRequired && !['true', 'false'].includes(systemLockoutRequired.toLowerCase())) {
-      const error = errorResponse('systemLockoutRequired must be true or false', 400);
-      return res.status(error.statusCode).json(error);
-    }
-    
-    // Validate risk severity
-    if (riskSeverity && !['high', 'medium', 'low'].includes(riskSeverity.toLowerCase())) {
-      const error = errorResponse('riskSeverity must be high, medium, or low', 400);
-      return res.status(error.statusCode).json(error);
-    }
-    
-    // Validate mitigation status
-    if (mitigationStatus && !['mitigated', 'unmitigated'].includes(mitigationStatus.toLowerCase())) {
-      const error = errorResponse('mitigationStatus must be mitigated or unmitigated', 400);
-      return res.status(error.statusCode).json(error);
-    }
-    
-    // Validate sort direction
-    if (sortDirection && !['ASC', 'DESC'].includes(sortDirection.toUpperCase())) {
-      const error = errorResponse('sortDirection must be ASC or DESC', 400);
-      return res.status(error.statusCode).json(error);
-    }
     
     // Sanitize search term
     if (search) {
-      req.query.search = search.trim().substring(0, 100);
-    }
-    
-    // Sanitize string filter parameters
-    const stringFields = {
-      systemStatus, objectType, maintenancePlant, status, riskType,
-      supervisor, individual, location, assetSystem, sortBy
-    };
-    
-    for (const [fieldName, fieldValue] of Object.entries(stringFields)) {
-      if (fieldValue) {
-        req.query[fieldName] = fieldValue.trim().substring(0, 50);
-      }
-    }
-    
-    // Normalize boolean field
-    if (systemLockoutRequired) {
-      req.query.systemLockoutRequired = systemLockoutRequired.toLowerCase();
-    }
-    
-    // Normalize case-sensitive fields
-    if (riskSeverity) {
-      req.query.riskSeverity = riskSeverity.toLowerCase();
-    }
-    
-    if (mitigationStatus) {
-      req.query.mitigationStatus = mitigationStatus.toLowerCase();
-    }
-    
-    if (sortDirection) {
-      req.query.sortDirection = sortDirection.toUpperCase();
+      req.query.search = search.trim().replace(/[<>]/g, '').substring(0, 1000);
     }
     
     next();
