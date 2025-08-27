@@ -4,6 +4,205 @@ const { Op } = require('sequelize');
 const bcrypt = require("bcryptjs");
 const { successResponse, errorResponse, sendResponse } = require('../helper/responseHelper');
 const { isValidEmail, isValidRole } = require('../helper/validationHelper');
+const Company = models.company;
+
+// Helper: normalize and validate a single incoming user row
+const normalizeIncomingUser = (raw, index) => {
+  const normalized = {
+    index,
+    email: typeof raw.email === 'string' ? raw.email.trim().toLowerCase() : raw.email,
+    role: typeof raw.role === 'string' ? raw.role.trim().toLowerCase() : raw.role,
+    name: typeof raw.name === 'string' ? raw.name.trim() : raw.name,
+    department: typeof raw.department === 'string' ? raw.department.trim() : raw.department,
+    phone: typeof raw.phone === 'string' ? raw.phone.trim() : raw.phone,
+    company_id: raw.company_id
+  };
+  return normalized;
+};
+
+// Allowed roles for import (exclude universal_user for safety)
+const IMPORT_ALLOWED_ROLES = ['superuser','admin','supervisor','user'];
+
+// Determine if actor can manage the given company
+const canManageCompany = (actor, companyId) => {
+  if (!actor) return false;
+  if (actor.role === 'universal_user') return true;
+  if (['superuser','admin'].includes(actor.role)) {
+    return parseInt(actor.company_id) === parseInt(companyId);
+  }
+  return false;
+};
+
+// Compare if any tracked fields changed
+const hasTrackedChanges = (existing, incoming) => {
+  const nameChanged = (incoming.name ?? '') !== (existing.name ?? '');
+  const roleChanged = (incoming.role ?? '') !== (existing.role ?? '');
+  const deptChanged = (incoming.department ?? '') !== (existing.department ?? '');
+  const phoneChanged = (incoming.phone ?? '') !== (existing.phone_no ?? '');
+  return nameChanged || roleChanged || deptChanged || phoneChanged;
+};
+
+module.exports.bulkUpsert = async (req, res) => {
+  try {
+    // Authorization: superuser/admin or above (universal_user)
+    if (!req.user || !['universal_user','superuser','admin'].includes(req.user.role)) {
+      const resp = errorResponse('Insufficient permissions', 403, null, 'AUTH_FORBIDDEN');
+      return sendResponse(res, resp);
+    }
+    
+    const incoming = Array.isArray(req.body.users) ? req.body.users : null;
+
+    if (!incoming || incoming.length === 0) {
+      const resp = errorResponse('Invalid payload: users must be a non-empty array', 400);
+      return sendResponse(res, resp);
+    }
+
+    // Normalize
+    const rows = incoming.map((u, idx) => normalizeIncomingUser(u, idx));
+
+    // Pre-validate and collect errors; also detect duplicates within request by (email, company_id)
+    const failed = [];
+    const keySeen = new Set();
+    const toProcess = [];
+    for (const row of rows) {
+      const rowErrors = [];
+      if (!row.email || typeof row.email !== 'string' || !isValidEmail(row.email)) {
+        rowErrors.push('INVALID_EMAIL_FORMAT');
+      }
+      if (!row.role || typeof row.role !== 'string' || !IMPORT_ALLOWED_ROLES.includes(row.role)) {
+        rowErrors.push('INVALID_ROLE');
+      }
+      if (row.company_id === undefined || row.company_id === null || isNaN(parseInt(row.company_id))) {
+        rowErrors.push('INVALID_COMPANY_ID');
+      }
+      // Duplicate-in-request detection
+      const sig = `${row.company_id}|${row.email}`;
+      if (keySeen.has(sig)) {
+        rowErrors.push('DUPLICATE_IN_REQUEST');
+      }
+
+      if (rowErrors.length > 0) {
+        failed.push({ email: row.email, index: row.index, errors: rowErrors });
+      } else {
+        keySeen.add(sig);
+        toProcess.push(row);
+      }
+    }
+
+    // If nothing valid
+    if (toProcess.length === 0) {
+      const resp = errorResponse('No valid users to process', 422, { failed }, 'ALL_ROWS_INVALID');
+      return sendResponse(res, resp);
+    }
+
+    // Enforce single company_id per request (business rule)
+    const uniqueCompanyIds = [...new Set(toProcess.map(r => parseInt(r.company_id)))];
+    if (uniqueCompanyIds.length !== 1) {
+      const resp = errorResponse('All users must target the same company_id', 400, { company_ids: uniqueCompanyIds }, 'MIXED_COMPANY_IDS');
+      return sendResponse(res, resp);
+    }
+
+    const targetCompanyId = uniqueCompanyIds[0];
+    const targetCompany = await Company.findByPk(targetCompanyId);
+    if (!targetCompany) {
+      const resp = errorResponse('Invalid company ID', 400, { company_id: targetCompanyId }, 'COMPANY_NOT_FOUND');
+      return sendResponse(res, resp);
+    }
+    if (!canManageCompany(req.user, targetCompanyId)) {
+      const resp = errorResponse('Insufficient permissions for this company', 403, { company_id: targetCompanyId }, 'COMPANY_ACCESS_DENIED');
+      return sendResponse(res, resp);
+    }
+
+    const filtered = toProcess;
+
+    // Process in batches
+    const created = [];
+    const updated = [];
+    const existing = [];
+
+    // Preload existing users by email (global uniqueness in current schema)
+    const emailsAll = [...new Set(filtered.map(r => r.email))];
+    const existingUsers = await User.findAll({
+      where: {
+        email: { [Op.in]: emailsAll },
+        deleted_at: null
+      }
+    });
+    const emailToUser = new Map(existingUsers.map(u => [u.email.toLowerCase(), u]));
+
+    for (const row of filtered) {
+        try {
+          const found = emailToUser.get(row.email);
+          if (!found) {
+            // Create
+            const newUser = await User.create({
+              email: row.email,
+              role: row.role,
+              name: row.name || null,
+              department: row.department || null,
+              phone_no: row.phone || null,
+              company_id: targetCompanyId,
+              password: ''
+            });
+
+            created.push({ email: row.email, id: newUser.id, index: row.index });
+            // Track for subsequent rows in same batch
+            emailToUser.set(row.email, newUser);
+            continue;
+          }
+
+          // Existing: if user belongs to a different company, do not reassign; fail this row
+          if (parseInt(found.company_id) !== parseInt(targetCompanyId)) {
+            failed.push({ email: row.email, index: row.index, errors: ['EMAIL_IN_USE_DIFFERENT_COMPANY'] });
+            continue;
+          }
+
+          const needsUpdate = hasTrackedChanges(found, row);
+          if (!needsUpdate) {
+            existing.push({ email: row.email, id: found.id, index: row.index });
+            continue;
+          }
+
+          const updatePayload = {};
+          if ((row.name ?? '') !== (found.name ?? '')) updatePayload.name = row.name || null;
+          if ((row.role ?? '') !== (found.role ?? '')) updatePayload.role = row.role;
+          if ((row.department ?? '') !== (found.department ?? '')) updatePayload.department = row.department || null;
+          if ((row.phone ?? '') !== (found.phone_no ?? '')) updatePayload.phone_no = row.phone || null;
+
+          const updatedUser = await found.update(updatePayload);
+          updated.push({ email: row.email, id: updatedUser.id, index: row.index });
+        } catch (err) {
+          // Classify as failed for this row
+          const code = err.name === 'SequelizeUniqueConstraintError' ? 'DUPLICATE_EMAIL_IN_DB' : 'ROW_PROCESSING_ERROR';
+          failed.push({ email: row.email, index: row.index, errors: [code] });
+        }
+      }
+
+    const totalProcessed = created.length + updated.length + existing.length + failed.length;
+    const response = successResponse('Bulk upsert processed', {
+      created,
+      updated,
+      existing,
+      failed
+    });
+
+    // Attach pagination-like summary
+    response.pagination = {
+      totalProcessed,
+      created: created.length,
+      updated: updated.length,
+      existing: existing.length,
+      failed: failed.length
+    };
+
+    return sendResponse(res, response);
+
+  } catch (error) {
+    console.error('Bulk upsert error:', { message: error.message });
+    const resp = errorResponse('Internal server error', 500);
+    return sendResponse(res, resp);
+  }
+};
 
 module.exports.createUser = async (req, res) => {
   try {
