@@ -216,6 +216,14 @@ const processCSVAsync = async (fileUpload, fileBuffer, userCompanyId) => {
       // Step 1: Validate CSV data and determine ID strategy
       const { validatedAssets, idStrategy } = await validateCSVData(assets);
 
+      const otherCompanyAssetsIds = await AssetHierarchy.unscoped().findAll({
+        where: { companyId: { [Op.ne]: userCompanyId } },
+        attributes: ['id'],
+        paranoid:false,
+        transaction: t
+      });
+      const otherCompanyAssetIds = new Set(otherCompanyAssetsIds.map(asset => asset.id));
+
       // Step 2: Get existing assets for comparison
       const existingAssets = await AssetHierarchy.unscoped().findAll({
         where: { companyId: userCompanyId },
@@ -225,7 +233,7 @@ const processCSVAsync = async (fileUpload, fileBuffer, userCompanyId) => {
       const existingAssetMap = new Map(existingAssets.map(asset => [asset.id, asset]));
 
       // Step 3: Determine which assets to delete (not in CSV)
-      const csvAssetIds = new Set(validatedAssets.map(asset => asset.id));
+      let csvAssetIds = new Set(validatedAssets.map(asset => asset.id));
       const assetsToDelete = existingAssets.filter(asset => 
         !csvAssetIds.has(asset.id) && !asset.deletedAt // Only delete non-deleted assets
       );
@@ -234,6 +242,40 @@ const processCSVAsync = async (fileUpload, fileBuffer, userCompanyId) => {
       for (const asset of assetsToDelete) {
         await asset.destroy({ transaction: t });
         console.log(`Deleted asset: ${asset.id} (${asset.name})`);
+      }
+
+      // map parents to children
+      const parentToChildrenMap = new Map();
+      for (const asset of validatedAssets) {
+        if (asset.parent) {
+          parentToChildrenMap.set(asset.parent, [...(parentToChildrenMap.get(asset.parent) || []), asset.id]);
+        }
+      }
+
+      for (const assetData of validatedAssets){
+        if ( otherCompanyAssetIds.has(assetData.id)) {
+          // id is already used by another company, generate a new id and update the assetData.id and children ids
+          const newId = `${assetData.id}-${Date.now()}`;
+          let tries = 0;
+          while ((otherCompanyAssetIds.has(newId) || existingAssetMap.has(newId)) && tries < 10) {
+            newId = `${assetData.id}-${Date.now()}`;
+            tries++;
+            if (tries >= 10) {
+              throw new Error("Failed to generate a unique ID for asset: " + assetData.id);
+            }
+          }
+          const oldId = assetData.id;
+          assetData.id = newId;
+          if (parentToChildrenMap.has(oldId)) {
+            const childrenIds = parentToChildrenMap.get(oldId);
+            for (const childId of childrenIds) {
+              const child = validatedAssets.find(asset => asset.id === childId);
+              if (child) {
+                child.parent = newId;
+              }
+            }
+          }
+        }
       }
 
       // Step 5: Create or update assets from CSV
@@ -273,6 +315,7 @@ const processCSVAsync = async (fileUpload, fileBuffer, userCompanyId) => {
           asset = existingAsset;
           console.log(`Updated asset: ${assetData.id} (${assetData.name})`);
         } else {
+          
           // Create new asset
           asset = await AssetHierarchy.create({
             id: assetData.id,
@@ -299,6 +342,8 @@ const processCSVAsync = async (fileUpload, fileBuffer, userCompanyId) => {
         
         processedAssets.push(asset);
       }
+
+      csvAssetIds = new Set(validatedAssets.map(asset => asset.id));
 
       // Step 6: Clean up any assets that were restored but shouldn't exist
       // This handles the case where restoring a parent also restored children not in CSV
