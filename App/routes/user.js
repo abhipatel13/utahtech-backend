@@ -63,7 +63,7 @@ router.put('/resetPassword/:id',
 // Bulk upsert users (universal_user, superuser, admin)
 router.post('/bulk-upsert', 
   auth,
-  requireRole(['universal_user','superuser','admin']),
+  requireRole(['superuser']),
   requireJsonBody(),
   userCtr.bulkUpsert
 );

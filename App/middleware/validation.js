@@ -68,7 +68,7 @@ exports.requireRole = (allowedRoles) => {
 exports.validatePagination = () => {
   return (req, res, next) => {
     const page = Math.max(1, parseInt(req.query.page) || 1);
-    const limit = Math.min(100, Math.max(1, parseInt(req.query.limit) || 100));
+    const limit = Math.min(1000, Math.max(1, parseInt(req.query.limit) || 1000));
     const offset = (page - 1) * limit;
     
     req.query.page = page;
