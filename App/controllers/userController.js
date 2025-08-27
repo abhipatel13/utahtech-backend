@@ -226,6 +226,12 @@ module.exports.createUser = async (req, res) => {
       return sendResponse(res, response);
     }
 
+    // Restriction: Universal users can only create superusers
+    if (req.user.role === 'universal_user' && role !== 'superuser') {
+      const response = errorResponse('Universal users can only create Superuser accounts', 403);
+      return sendResponse(res, response);
+    }
+
     // Check if email is already in use
     const existingUser = await User.findOne({ 
       where: { email: email, deleted_at: null } 

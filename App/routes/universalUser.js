@@ -11,6 +11,8 @@ router.post('/users', universalUserController.createUserAnyCompany);
 router.get('/users', universalUserController.getAllUsersAllCompanies);
 router.put('/users/:userId', universalUserController.updateUserAnyCompany);
 router.delete('/users/:userId', universalUserController.deleteUserAnyCompany);
+router.put('/users/:userId/reset-password', universalUserController.resetUserPassword);
+router.put('/change-password', universalUserController.changeOwnPassword);
 
 // Company Management Routes
 router.get('/companies', universalUserController.getAllCompanies);

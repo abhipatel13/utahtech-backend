@@ -35,6 +35,12 @@ module.exports.createUserAnyCompany = async (req, res) => {
       return sendResponse(res, response);
     }
 
+    // Restriction: Universal users can only create superusers
+    if (role !== 'superuser') {
+      const response = errorResponse('Universal users can only create Superuser accounts', 403);
+      return sendResponse(res, response);
+    }
+
     // For non-universal users, company_id is required
     if (role !== 'universal_user' && !company_id) {
       const response = errorResponse('Company ID is required for non-universal users', 400);
@@ -405,6 +411,12 @@ module.exports.updateUserAnyCompany = async (req, res) => {
       return sendResponse(res, response);
     }
 
+    // Restriction: Universal users cannot create or promote to universal_user role
+    if (role && role === 'universal_user') {
+      const response = errorResponse('Universal users cannot promote users to Universal User role', 403);
+      return sendResponse(res, response);
+    }
+
     // Check email uniqueness if changing email
     if (email && email !== user.email) {
       const existingUser = await User.findOne({
@@ -505,6 +517,116 @@ module.exports.deleteUserAnyCompany = async (req, res) => {
 
   } catch (error) {
     console.error('Delete user error:', error);
+    const response = errorResponse('Internal server error', 500);
+    return sendResponse(res, response);
+  }
+};
+
+// Reset user password (universal user only)
+module.exports.resetUserPassword = async (req, res) => {
+  try {
+    // Only universal users can access this endpoint
+    if (req.user.role !== 'universal_user') {
+      const response = errorResponse('Access denied. Only universal users can reset passwords across companies.', 403);
+      return sendResponse(res, response);
+    }
+
+    const { userId } = req.params;
+    const { newPassword } = req.body;
+
+    // Validate new password
+    if (!newPassword || newPassword.trim() === '') {
+      const response = errorResponse('New password is required', 400);
+      return sendResponse(res, response);
+    }
+
+    if (newPassword.length < 6) {
+      const response = errorResponse('Password must be at least 6 characters long', 400);
+      return sendResponse(res, response);
+    }
+
+    // Find user
+    const user = await User.findOne({
+      where: { id: userId, deleted_at: null }
+    });
+
+    if (!user) {
+      const response = errorResponse('User not found', 404);
+      return sendResponse(res, response);
+    }
+
+    // Hash the new password
+    const hashedPassword = await bcrypt.hash(newPassword, 10);
+
+    // Update the user's password
+    await user.update({ password: hashedPassword });
+
+    const response = successResponse('Password reset successfully', null);
+    return sendResponse(res, response);
+
+  } catch (error) {
+    console.error('Reset password error:', error);
+    const response = errorResponse('Internal server error', 500);
+    return sendResponse(res, response);
+  }
+};
+
+// Change own password (universal user only)
+module.exports.changeOwnPassword = async (req, res) => {
+  try {
+    // Only universal users can access this endpoint
+    if (req.user.role !== 'universal_user') {
+      const response = errorResponse('Access denied. Only universal users can change their own password using this endpoint.', 403);
+      return sendResponse(res, response);
+    }
+
+    const { currentPassword, newPassword } = req.body;
+
+    // Validate current password
+    if (!currentPassword || currentPassword.trim() === '') {
+      const response = errorResponse('Current password is required', 400);
+      return sendResponse(res, response);
+    }
+
+    // Validate new password
+    if (!newPassword || newPassword.trim() === '') {
+      const response = errorResponse('New password is required', 400);
+      return sendResponse(res, response);
+    }
+
+    if (newPassword.length < 6) {
+      const response = errorResponse('New password must be at least 6 characters long', 400);
+      return sendResponse(res, response);
+    }
+
+    // Get current user
+    const user = await User.findOne({
+      where: { id: req.user.id, deleted_at: null }
+    });
+
+    if (!user) {
+      const response = errorResponse('User not found', 404);
+      return sendResponse(res, response);
+    }
+
+    // Verify current password
+    const isCurrentPasswordValid = await bcrypt.compare(currentPassword, user.password);
+    if (!isCurrentPasswordValid) {
+      const response = errorResponse('Current password is incorrect', 400);
+      return sendResponse(res, response);
+    }
+
+    // Hash the new password
+    const hashedNewPassword = await bcrypt.hash(newPassword, 10);
+
+    // Update the user's password
+    await user.update({ password: hashedNewPassword });
+
+    const response = successResponse('Password changed successfully', null);
+    return sendResponse(res, response);
+
+  } catch (error) {
+    console.error('Change own password error:', error);
     const response = errorResponse('Internal server error', 500);
     return sendResponse(res, response);
   }
