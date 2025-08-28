@@ -118,6 +118,74 @@ class TaskHazard extends Sequelize.Model {
       foreignKey: 'taskHazardId',
       as: 'approvals'
     });
+
+    // Add hooks for cascading soft delete/restore
+    this.addHook('beforeDestroy', async (taskHazard, options) => {
+      const { transaction } = options;
+      
+      try {
+        // 1. Soft delete associated task risks
+        await models.task_risks.destroy({
+          where: { taskHazardId: taskHazard.id },
+          transaction
+        });
+
+        // 2. Soft delete associated supervisor approvals
+        await models.supervisor_approvals.destroy({
+          where: { taskHazardId: taskHazard.id },
+          transaction
+        });
+
+        // 3. Remove associations with individuals (junction table records)
+        await models.task_hazard_individuals.destroy({
+          where: { taskHazardId: taskHazard.id },
+          transaction
+        });
+
+        console.log(`Cascading soft delete completed for task hazard: ${taskHazard.id}`);
+      } catch (error) {
+        console.error(`Error in beforeDestroy hook for task hazard ${taskHazard.id}:`, error);
+        throw error;
+      }
+    });
+
+    this.addHook('afterRestore', async (taskHazard, options) => {
+      const { transaction } = options;
+      
+      try {
+        // 1. Restore associated task risks
+        await models.task_risks.restore({
+          where: { 
+            taskHazardId: taskHazard.id,
+            deletedAt: { [models.Sequelize.Op.ne]: null }
+          },
+          transaction
+        });
+
+        // 2. Restore associated supervisor approvals
+        await models.supervisor_approvals.restore({
+          where: { 
+            taskHazardId: taskHazard.id,
+            deletedAt: { [models.Sequelize.Op.ne]: null }
+          },
+          transaction
+        });
+
+        // 3. Restore associations with individuals (junction table records)
+        await models.task_hazard_individuals.restore({
+          where: { 
+            taskHazardId: taskHazard.id,
+            deletedAt: { [models.Sequelize.Op.ne]: null }
+          },
+          transaction
+        });
+
+        console.log(`Cascading restore completed for task hazard: ${taskHazard.id}`);
+      } catch (error) {
+        console.error(`Error in afterRestore hook for task hazard ${taskHazard.id}:`, error);
+        throw error;
+      }
+    });
   };
 
   static scopes(models) {

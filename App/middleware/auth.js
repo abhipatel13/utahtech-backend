@@ -51,54 +51,6 @@ const auth = async (req, res, next) => {
   }
 };
 
-const checkRole = (roles) => {
-  return (req, res, next) => {
-    if (!req.user) {
-      return res.status(401).json({ 
-        status: false,
-        message: 'Authentication required' 
-      });
-    }
-
-    if (!roles.includes(req.user.role)) {
-      return res.status(403).json({ 
-        status: false,
-        message: 'Access denied: insufficient permissions' 
-      });
-    }
-
-    next();
-  };
-};
-
-const checkPermission = (permissions) => {
-  return (req, res, next) => {
-    if (!req.user) {
-      return res.status(401).json({ error: 'Authentication required' });
-    }
-
-    const userPermissions = req.user.getPermissions();
-    
-    // Superuser or Admin has all permissions
-    if (req.user.role === 'superuser' || req.user.role === 'admin') {
-      return next();
-    }
-
-    // Check if user has any of the required permissions
-    const hasPermission = permissions.some(permission => 
-      userPermissions.includes(permission)
-    );
-
-    if (!hasPermission) {
-      return res.status(403).json({ error: 'Access denied: insufficient permissions' });
-    }
-
-    next();
-  };
-};
-
 module.exports = {
-  auth,
-  checkRole,
-  checkPermission,
+  auth
 };

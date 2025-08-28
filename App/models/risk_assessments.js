@@ -108,6 +108,59 @@ class RiskAssessment extends Sequelize.Model {
       foreignKey: 'riskAssessmentId',
       as: 'risks'
     });
+
+    // Add hooks for cascading soft delete/restore
+    this.addHook('beforeDestroy', async (riskAssessment, options) => {
+      const { transaction } = options;
+      
+      try {
+        // 1. Soft delete associated risk assessment risks
+        await models.risk_assessment_risks.destroy({
+          where: { riskAssessmentId: riskAssessment.id },
+          transaction
+        });
+
+        // 2. Remove associations with individuals (junction table records)
+        await models.risk_assessment_individuals.destroy({
+          where: { riskAssessmentId: riskAssessment.id },
+          transaction
+        });
+
+        console.log(`Cascading soft delete completed for risk assessment: ${riskAssessment.id}`);
+      } catch (error) {
+        console.error(`Error in beforeDestroy hook for risk assessment ${riskAssessment.id}:`, error);
+        throw error;
+      }
+    });
+
+    this.addHook('afterRestore', async (riskAssessment, options) => {
+      const { transaction } = options;
+      
+      try {
+        // 1. Restore associated risk assessment risks
+        await models.risk_assessment_risks.restore({
+          where: { 
+            riskAssessmentId: riskAssessment.id,
+            deletedAt: { [models.Sequelize.Op.ne]: null }
+          },
+          transaction
+        });
+
+        // 2. Restore associations with individuals (junction table records)
+        await models.risk_assessment_individuals.restore({
+          where: { 
+            riskAssessmentId: riskAssessment.id,
+            deletedAt: { [models.Sequelize.Op.ne]: null }
+          },
+          transaction
+        });
+
+        console.log(`Cascading restore completed for risk assessment: ${riskAssessment.id}`);
+      } catch (error) {
+        console.error(`Error in afterRestore hook for risk assessment ${riskAssessment.id}:`, error);
+        throw error;
+      }
+    });
   };
 
   static scopes(models) {

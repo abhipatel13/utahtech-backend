@@ -2,24 +2,7 @@ const db = require("../models");
 const RiskAssessment = db.risk_assessments;
 const RiskAssessmentRisk = db.risk_assessment_risks;
 const User = db.user;
-
-/**
- * Helper function to standardize error responses
- */
-const createErrorResponse = (status, message, details = null) => {
-  const response = { status: false, message };
-  if (details) response.details = details;
-  return response;
-};
-
-/**
- * Helper function to standardize success responses
- */
-const createSuccessResponse = (message, data = null) => {
-  const response = { status: true, message };
-  if (data) response.data = data;
-  return response;
-};
+const { successResponse, errorResponse, sendResponse, paginatedResponse } = require('../helper/responseHelper');
 
 /**
  * Helper function to get user's company ID with validation
@@ -74,35 +57,6 @@ const convertToInteger = (value) => {
 
   // If we get here, we couldn't convert properly
   return 1; // Default fallback
-};
-
-/**
- * Helper function to validate required fields for risk assessment creation/update
- */
-const validateRequiredFields = (body) => {
-  const missingFields = [];
-  const requiredFields = [
-    { field: 'date', name: 'Date' },
-    { field: 'time', name: 'Time' },
-    { field: 'scopeOfWork', name: 'Scope of Work' },
-    { field: 'trainedWorkforce', name: 'Trained Workforce' },
-    { field: 'individuals', name: 'Individuals' },
-    { field: 'supervisor', name: 'Supervisor' },
-    { field: 'location', name: 'Location' }
-  ];
-
-  requiredFields.forEach(({ field, name }) => {
-    if (body[field] === undefined || body[field] === null || body[field] === '') {
-      missingFields.push(name);
-    }
-  });
-
-  // Check if risks array exists and is not empty for creation
-  if (!body.risks || !Array.isArray(body.risks) || body.risks.length === 0) {
-    missingFields.push('Risks (at least one risk is required)');
-  }
-
-  return missingFields;
 };
 
 /**
@@ -268,30 +222,14 @@ exports.create = async (req, res) => {
     // Validate user company access
     const userCompanyId = getUserCompanyId(req);
 
-    // Validate required fields
-    const missingFields = validateRequiredFields(req.body);
-    if (missingFields.length > 0) {
-      console.log("Missing fields", missingFields);
-      console.log("Received fields", Object.keys(req.body));
-      await transaction.rollback();
-      return res.status(400).json(createErrorResponse(
-        "validation_error",
-        "Missing required fields",
-        {
-          missingFields,
-          receivedFields: Object.keys(req.body)
-        }
-      ));
-    }
-
-    // Parse and validate individuals (outside transaction for better error handling)
+    // Parse and validate individuals (database lookup)
     let individuals, supervisor;
     try {
       individuals = await parseAndValidateIndividuals(req.body.individuals, transaction);
       supervisor = await findAndValidateSupervisor(req.body.supervisor, transaction);
     } catch (validationError) {
       await transaction.rollback();
-      return res.status(404).json(createErrorResponse("validation_error", validationError.message));
+      return sendResponse(res, errorResponse(validationError.message, 404));
     }
 
     // Process risks and determine status
@@ -323,9 +261,10 @@ exports.create = async (req, res) => {
     // Commit transaction
     await transaction.commit();
 
-    res.status(201).json(createSuccessResponse(
+    sendResponse(res, successResponse(
       "Risk Assessment created successfully",
-      { riskAssessment, risks: processedRisks }
+      { riskAssessment, risks: processedRisks },
+      201
     ));
 
   } catch (error) {
@@ -333,9 +272,9 @@ exports.create = async (req, res) => {
     if (transaction) await transaction.rollback();
     
     console.error('Error creating risk assessment:', error);
-    res.status(500).json(createErrorResponse(
-      "server_error",
-      error.message || "Some error occurred while creating the Risk Assessment."
+    sendResponse(res, errorResponse(
+      error.message || "Some error occurred while creating the Risk Assessment.",
+      500
     ));
   }
 };
@@ -358,16 +297,50 @@ exports.findAll = async (req, res) => {
     // Format for frontend response
     const formattedRiskAssessments = riskAssessments.map(formatRiskAssessment);
 
-    res.status(200).json(createSuccessResponse(
+    sendResponse(res, successResponse(
       "Risk Assessments retrieved successfully",
       formattedRiskAssessments
     ));
     
   } catch (error) {
     console.error('Error retrieving risk assessments:', error);
-    res.status(500).json(createErrorResponse(
-      "server_error",
-      error.message || "Some error occurred while retrieving risk assessments."
+    sendResponse(res, errorResponse(
+      error.message || "Some error occurred while retrieving risk assessments.",
+      500
+    ));
+  }
+};
+
+/**
+ * Retrieve all Risk Assessments from all companies (Universal User Access)
+ * Bypasses company access restrictions for universal users
+ */
+exports.findAllUniversal = async (req, res) => {
+  try {
+    // Check if user is a universal user
+    if (req.user.role !== 'universal_user') {
+      return sendResponse(res, errorResponse(
+        'Access denied. Only universal users can access all risk assessments.',
+        403
+      ));
+    }
+    
+    // Fetch risk assessments from all companies with optimized query
+    const riskAssessments = await RiskAssessment.findAll({});
+
+    // Format for frontend response
+    const formattedRiskAssessments = riskAssessments.map(formatRiskAssessment);
+
+    sendResponse(res, successResponse(
+      "All Risk Assessments retrieved successfully for universal user",
+      formattedRiskAssessments
+    ));
+    
+  } catch (error) {
+    console.error('Error retrieving all risk assessments:', error);
+    sendResponse(res, errorResponse(
+      error.message || "Some error occurred while retrieving all risk assessments.",
+      500
     ));
   }
 };
@@ -387,7 +360,7 @@ exports.findOne = async (req, res) => {
     // Format for frontend response
     const formattedRiskAssessment = formatRiskAssessment(riskAssessment);
 
-    res.status(200).json(createSuccessResponse(
+    sendResponse(res, successResponse(
       "Risk Assessment retrieved successfully",
       formattedRiskAssessment
     ));
@@ -396,12 +369,12 @@ exports.findOne = async (req, res) => {
     console.error('Error retrieving risk assessment:', error);
     
     if (error.message === "Risk Assessment not found") {
-      return res.status(404).json(createErrorResponse("not_found", error.message));
+      return sendResponse(res, errorResponse(error.message, 404));
     }
     
-    res.status(500).json(createErrorResponse(
-      "server_error",
-      error.message || `Error retrieving Risk Assessment with id ${req.params.id}`
+    sendResponse(res, errorResponse(
+      error.message || `Error retrieving Risk Assessment with id ${req.params.id}`,
+      500
     ));
   }
 };
@@ -421,7 +394,7 @@ exports.update = async (req, res) => {
       }
     });
     if(!user || !user?.role){
-      return res.status(403).json(createErrorResponse("authorization_error", "Submitting user not found"));
+      return sendResponse(res, errorResponse("Submitting user not found", 403));
     }
 
     // When a regular user makes changes to a risk assessment that required a supervisor signature, the assessment will be set back to pending
@@ -441,7 +414,7 @@ exports.update = async (req, res) => {
       individuals = await parseAndValidateIndividuals(req.body.individuals);
       supervisor = await findAndValidateSupervisor(req.body.supervisor);
     } catch (validationError) {
-      return res.status(404).json(createErrorResponse("validation_error", validationError.message));
+      return sendResponse(res, errorResponse(validationError.message, 404));
     }
 
     // Start transaction for data modifications
@@ -471,7 +444,7 @@ exports.update = async (req, res) => {
       return { riskAssessment, risks: updatedRisks };
     });
 
-    res.status(200).json(createSuccessResponse(
+    sendResponse(res, successResponse(
       "Risk Assessment updated successfully",
       result
     ));
@@ -480,12 +453,12 @@ exports.update = async (req, res) => {
     console.error('Error updating risk assessment:', error);
     
     if (error.message === "Risk Assessment not found") {
-      return res.status(404).json(createErrorResponse("not_found", error.message));
+      return sendResponse(res, errorResponse(error.message, 404));
     }
     
-    res.status(500).json(createErrorResponse(
-      "server_error",
-      error.message || "Some error occurred while updating the Risk Assessment."
+    sendResponse(res, errorResponse(
+      error.message || "Some error occurred while updating the Risk Assessment.",
+      500
     ));
   }
 };
@@ -515,18 +488,65 @@ exports.delete = async (req, res) => {
       await riskAssessment.destroy({ transaction });
     });
 
-    res.status(200).json(createSuccessResponse("Risk Assessment deleted successfully"));
+    sendResponse(res, successResponse("Risk Assessment deleted successfully"));
 
   } catch (error) {
     console.error('Error deleting risk assessment:', error);
     
     if (error.message === "Risk Assessment not found") {
-      return res.status(404).json(createErrorResponse("not_found", error.message));
+      return sendResponse(res, errorResponse(error.message, 404));
     }
     
-    res.status(500).json(createErrorResponse(
-      "server_error",
-      error.message || "Some error occurred while deleting the Risk Assessment."
+    sendResponse(res, errorResponse(
+      error.message || "Some error occurred while deleting the Risk Assessment.",
+      500
+    ));
+  }
+};
+
+/**
+ * Delete a Risk Assessment from any company (Universal User only)
+ * Bypasses company access restrictions for universal users
+ */
+exports.deleteUniversal = async (req, res) => {
+  try {
+    // Only universal users can access this endpoint
+    if (req.user.role !== 'universal_user') {
+      return sendResponse(res, errorResponse(
+        'Access denied. Only universal users can delete risk assessments across companies.',
+        403
+      ));
+    }
+
+    const id = req.params.id;
+    
+    // Find risk assessment without company validation (universal access)
+    const riskAssessment = await RiskAssessment.findByPk(id);
+    
+    if (!riskAssessment) {
+      return sendResponse(res, errorResponse("Risk Assessment not found", 404));
+    }
+
+    // Delete within transaction for data consistency
+    await db.sequelize.transaction(async (transaction) => {
+      // Delete associated risks (foreign key constraint requires this first)
+      await RiskAssessmentRisk.destroy({
+        where: { riskAssessmentId: id },
+        transaction
+      });
+
+      // Delete the risk assessment (junction table entries will be cascade deleted)
+      await riskAssessment.destroy({ transaction });
+    });
+
+    sendResponse(res, successResponse("Risk Assessment deleted successfully by universal user"));
+
+  } catch (error) {
+    console.error('Error deleting risk assessment (universal):', error);
+    
+    sendResponse(res, errorResponse(
+      error.message || "Some error occurred while deleting the Risk Assessment.",
+      500
     ));
   }
 }; 

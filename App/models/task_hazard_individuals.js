@@ -33,7 +33,8 @@ class TaskHazardIndividuals extends Sequelize.Model {
       modelName: 'task_hazard_individuals',
       tableName: 'task_hazard_individuals',
       timestamps: true,
-      underscored: true
+      underscored: true,
+      paranoid: true
     });
   }
 

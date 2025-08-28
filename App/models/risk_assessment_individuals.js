@@ -33,7 +33,8 @@ class RiskAssessmentIndividuals extends Sequelize.Model {
       modelName: 'risk_assessment_individuals',
       tableName: 'risk_assessment_individuals',
       timestamps: true,
-      underscored: true
+      underscored: true,
+      paranoid: true
     });
   }
 

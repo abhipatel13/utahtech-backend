@@ -25,8 +25,12 @@ class FileUpload extends Sequelize.Model {
         allowNull: false
       },
       status: {
-        type: DataTypes.ENUM('uploading', 'completed', 'error'),
+        type: DataTypes.ENUM('uploading', 'processing', 'completed', 'error'),
         defaultValue: 'uploading'
+      },
+      errorMessage: {
+        type: DataTypes.TEXT,
+        allowNull: true
       },
       companyId: {
         type: DataTypes.INTEGER,
