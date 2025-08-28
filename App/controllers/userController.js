@@ -35,6 +35,12 @@ const canManageCompany = (actor, companyId) => {
 
 // Compare if any tracked fields changed
 const hasTrackedChanges = (existing, incoming) => {
+  console.log("++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++")
+  console.log(existing.name, incoming.name);
+  console.log(existing.role, incoming.role);
+  console.log(existing.department, incoming.department);
+  console.log(existing.phone_no, incoming.phone);
+  console.log("++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++")
   const nameChanged = (incoming.name ?? '') !== (existing.name ?? '');
   const roleChanged = (incoming.role ?? '') !== (existing.role ?? '');
   const deptChanged = (incoming.department ?? '') !== (existing.department ?? '');
@@ -61,10 +67,10 @@ module.exports.bulkUpsert = async (req, res) => {
     for (const row of rows) {
       const rowErrors = [];
       if (!row.email || typeof row.email !== 'string' || !isValidEmail(row.email)) {
-        rowErrors.push('INVALID_EMAIL_FORMAT');
+        rowErrors.push('Invalid email format');
       }
       if (!row.role || typeof row.role !== 'string' || !IMPORT_ALLOWED_ROLES.includes(row.role)) {
-        rowErrors.push('INVALID_ROLE');
+        rowErrors.push('Invalid role');
       }
       // if (row.company_id === undefined || row.company_id === null || isNaN(parseInt(row.company_id))) {
       //   rowErrors.push('INVALID_COMPANY_ID');
@@ -72,7 +78,7 @@ module.exports.bulkUpsert = async (req, res) => {
       // Duplicate-in-request detection
       const sig = `${row.email}`;
       if (keySeen.has(sig)) {
-        rowErrors.push('DUPLICATE_IN_REQUEST');
+        rowErrors.push('Duplicate in request');
       }
 
       if (rowErrors.length > 0) {
@@ -85,7 +91,7 @@ module.exports.bulkUpsert = async (req, res) => {
 
     // If nothing valid
     if (toProcess.length === 0) {
-      const resp = errorResponse('No valid users to process', 422, { failed }, 'ALL_ROWS_INVALID');
+      const resp = errorResponse('No valid users to process', 422, { failed }, 'All rows invalid');
       return sendResponse(res, resp);
     }
 
@@ -99,7 +105,7 @@ module.exports.bulkUpsert = async (req, res) => {
     const targetCompanyId = req.user.company_id;
     const targetCompany = await Company.findByPk(targetCompanyId);
     if (!targetCompany) {
-      const resp = errorResponse('Invalid company ID', 400, { company_id: targetCompanyId }, 'COMPANY_NOT_FOUND');
+      const resp = errorResponse('Invalid company ID', 400, { company_id: targetCompanyId }, 'Company not found');
       return sendResponse(res, resp);
     }
     // if (!canManageCompany(req.user, targetCompanyId)) {
@@ -114,15 +120,42 @@ module.exports.bulkUpsert = async (req, res) => {
     const updated = [];
     const existing = [];
 
+    const updateUser = async (foundUser, row, existing, updated) => {
+      const needsUpdate = hasTrackedChanges(foundUser, row);
+      if (!needsUpdate) {
+        existing.push({ email: row.email, id: foundUser.id, index: row.index });
+        return;
+      }
+
+      const updatePayload = {};
+      if ((row.name ?? '') !== (foundUser.name ?? '')) updatePayload.name = row.name || null;
+      if ((row.role ?? '') !== (foundUser.role ?? '')) updatePayload.role = row.role;
+      if ((row.department ?? '') !== (foundUser.department ?? '')) updatePayload.department = row.department || null;
+      if ((row.phone ?? '') !== (foundUser.phone_no ?? '')) updatePayload.phone_no = row.phone || null;
+
+      const updatedUser = await foundUser.update(updatePayload);
+      updated.push({ email: row.email, id: updatedUser.id, index: row.index });
+    }
+
     // Preload existing users by email (global uniqueness in current schema)
     const emailsAll = [...new Set(filtered.map(r => r.email))];
-    const existingUsers = await User.findAll({
+    const existingUsers = await User.unscoped().findAll({
       where: {
         email: { [Op.in]: emailsAll }
       },
       paranoid: false
     });
     const emailToUser = new Map(existingUsers.map(u => [u.email.toLowerCase(), u]));
+
+    const deletedUsers = await User.unscoped().findAll({
+      where: {
+        email: { [Op.in]: emailsAll },
+        deleted_at: { [Op.ne]: null }
+      },
+      paranoid: false
+    });
+
+    const deletedEmailToUser = new Map(deletedUsers.map(u => [u.email.toLowerCase(), u]));
 
     for (const row of filtered) {
         try {
@@ -145,34 +178,35 @@ module.exports.bulkUpsert = async (req, res) => {
             continue;
           }
 
-          if(found.deleted_at !== null){
-            failed.push({ email: row.email, index: row.index, errors: ['EMAIL_IN_USE_CONTACT_SUPPORT'] });
+          // If user is deleted and belongs to the same company, restore and update
+          if(deletedEmailToUser.has(row.email)){
+            const deletedUser = deletedEmailToUser.get(row.email);
+            if (parseInt(deletedUser.company_id) === parseInt(targetCompanyId)) {
+              await deletedUser.restore();
+              const reloadUser = await User.unscoped().findOne({
+                where: {
+                  email: row.email
+                },
+                paranoid: false
+              });
+              await updateUser(reloadUser, row, existing, updated);
+              continue;
+            }
+            failed.push({ email: row.email, index: row.index, errors: ['Email in use at a different company'] });
             continue;
           }
 
-          // Existing: if user belongs to a different company, do not reassign; fail this row
+          // If user belongs to a different company, do not reassign; fail this row
           if (parseInt(found.company_id) !== parseInt(targetCompanyId)) {
-            failed.push({ email: row.email, index: row.index, errors: ['EMAIL_IN_USE_DIFFERENT_COMPANY'] });
+            failed.push({ email: row.email, index: row.index, errors: ['Email in use at a different company'] });
             continue;
           }
 
-          const needsUpdate = hasTrackedChanges(found, row);
-          if (!needsUpdate) {
-            existing.push({ email: row.email, id: found.id, index: row.index });
-            continue;
-          }
+          await updateUser(found, row, existing, updated);
 
-          const updatePayload = {};
-          if ((row.name ?? '') !== (found.name ?? '')) updatePayload.name = row.name || null;
-          if ((row.role ?? '') !== (found.role ?? '')) updatePayload.role = row.role;
-          if ((row.department ?? '') !== (found.department ?? '')) updatePayload.department = row.department || null;
-          if ((row.phone ?? '') !== (found.phone_no ?? '')) updatePayload.phone_no = row.phone || null;
-
-          const updatedUser = await found.update(updatePayload);
-          updated.push({ email: row.email, id: updatedUser.id, index: row.index });
         } catch (err) {
           // Classify as failed for this row
-          const code = err.name === 'SequelizeUniqueConstraintError' ? 'DUPLICATE_EMAIL_IN_DB' : 'ROW_PROCESSING_ERROR';
+          const code = err.name === 'SequelizeUniqueConstraintError' ? 'Duplicate email in database' : 'Row processing error';
           failed.push({ email: row.email, index: row.index, errors: [code] });
         }
       }
