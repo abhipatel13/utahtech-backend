@@ -35,10 +35,10 @@ router.use(ensureCompanyAccess('task_hazards'));
 // Create a new Task Hazard
 router.post("/", 
   requireJsonBody(),
-  validateRequired(['date', 'time', 'scopeOfWork', 'trainedWorkforce', 'individual', 'supervisor', 'location']),
+  validateRequired(['date', 'time', 'scopeOfWork', 'individual', 'supervisor', 'location']),
   validateDateTime(),
   validateArray('risks', true),
-  sanitizeInputs(['scopeOfWork', 'individual', 'supervisor', 'location', 'trainedWorkforce']),
+  sanitizeInputs(['scopeOfWork', 'individual', 'supervisor', 'location']),
   task_hazards.create
 );
 
