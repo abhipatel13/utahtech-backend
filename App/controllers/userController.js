@@ -344,7 +344,17 @@ module.exports.getAllUserRestricted = async (req, res) => {
       }
     });
 
-    const response = successResponse('Users retrieved successfully', result);
+    // Map the response to use consistent field names
+    const mappedResult = result.map(user => ({
+      id: user.id,
+      email: user.email,
+      name: user.name,
+      role: user.role,
+      department: user.department,
+      phone: user.phone_no, // Map phone_no to phone
+    }));
+
+    const response = successResponse('Users retrieved successfully', mappedResult);
     return sendResponse(res, response);
 
   } catch (error) {
