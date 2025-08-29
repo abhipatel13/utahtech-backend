@@ -47,13 +47,28 @@ exports.create = async (req, res) => {
 
     // Start transaction
     const result = await db.sequelize.transaction(async (t) => {
+      const cmmsInternalIds = req.body.assets.map(asset => sanitizeInput(asset.cmmsInternalId));
+
+      const existingAssets = await AssetHierarchy.findAll({
+        where: {
+          cmmsInternalId: {
+            [Op.in]: cmmsInternalIds
+          }
+        },
+        paranoid:false,
+        transaction: t
+      });
+      const existingAssetMap = new Map(existingAssets.map(asset => [asset.id, asset]));
+
       // Create all assets without parent relationships first
       const assets = await Promise.all(
         req.body.assets.map(async (asset) => {
-          console.log("asset", asset);
           // Generate a unique ID based on timestamp and cmmsInternalId
-          const timestamp = Date.now();
-          const uniqueId = `${sanitizeInput(asset.cmmsInternalId)}-${timestamp}`;
+          let uniqueId = sanitizeInput(asset.cmmsInternalId);
+          if (existingAssetMap.has(uniqueId)) {
+            const timestamp = Date.now();
+            uniqueId += `-${timestamp}`;
+          }
 
           return AssetHierarchy.create({
             id: uniqueId,
@@ -309,7 +324,8 @@ const processCSVAsync = async (fileUpload, fileBuffer, userCompanyId) => {
             manufacturer: assetData.manufacturer,
             serialNumber: assetData.serialNumber,
             parent: assetData.parent,
-            level: 0 // Will be recalculated
+            level: 0, // Will be recalculated
+            uploadOrder: assetData.uploadOrder
           }, { transaction: t });
           
           asset = existingAsset;
@@ -334,7 +350,8 @@ const processCSVAsync = async (fileUpload, fileBuffer, userCompanyId) => {
             manufacturer: assetData.manufacturer,
             serialNumber: assetData.serialNumber,
             parent: assetData.parent,
-            level: 0 // Will be recalculated
+            level: 0, // Will be recalculated
+            uploadOrder: assetData.uploadOrder
           }, { transaction: t });
           
           console.log(`Created asset: ${assetData.id} (${assetData.name})`);
@@ -529,7 +546,8 @@ const validateCSVData = async (assets) => {
       make: asset['make']?.trim() || null,
       manufacturer: asset['manufacturer']?.trim() || null,
       serialNumber: asset['serial_number']?.trim() || null,
-      parent: null // Will be resolved next
+      parent: null, // Will be resolved next
+      uploadOrder: i
     };
 
     validatedAssets.push(assetData);
@@ -697,7 +715,7 @@ exports.findAll = async (req, res) => {
     }
 
     const assets = await AssetHierarchy.findAll({
-      order: [['level', 'ASC'], ['name', 'ASC']],
+      order: [['level', 'ASC'], ['upload_order', 'ASC'], ['name', 'ASC']],
       where: whereClause
     });
 

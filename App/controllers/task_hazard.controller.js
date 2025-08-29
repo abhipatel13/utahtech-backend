@@ -142,7 +142,6 @@ const getApprovalInfo = async (taskHazardId) => {
     const latestApproval = await SupervisorApproval.findOne({
       where: {
         taskHazardId,
-        status: 'approved',
         isInvalidated: false
       },
       include: [
@@ -151,28 +150,23 @@ const getApprovalInfo = async (taskHazardId) => {
       order: [['processedAt', 'DESC']]
     });
 
-    return {
-      hasCurrentApproval: !!currentApproval,
-      currentApprovalStatus: currentApproval?.status || null,
-      currentApprovalPending: currentApproval?.status === 'pending',
-      hasLatestApproval: !!latestApproval,
-      lastApprovedAt: latestApproval?.processedAt || null,
-      lastApprovedBy: latestApproval?.supervisor ? {
-        id: latestApproval.supervisor.id,
-        email: latestApproval.supervisor.email,
-        name: latestApproval.supervisor.name
-      } : null
-    };
+    if(currentApproval){
+      return {
+        id: currentApproval?.id,
+        status: currentApproval?.status,
+        createdAt: currentApproval?.createdAt,
+        processedAt: currentApproval?.processedAt,
+        comments: currentApproval?.comments,
+        isInvalidated: false,
+        isLatest: true,
+        supervisor: currentApproval?.supervisor,
+        taskHazardData: currentApproval?.taskHazardSnapshot,
+      }
+    }
+    return null;
   } catch (error) {
     console.error('Error fetching approval info:', error);
-    return {
-      hasCurrentApproval: false,
-      currentApprovalStatus: null,
-      currentApprovalPending: false,
-      hasLatestApproval: false,
-      lastApprovedAt: null,
-      lastApprovedBy: null
-    };
+    return null;
   }
 };
 
@@ -755,10 +749,7 @@ exports.findOne = async (req, res) => {
     // Format for frontend response
     const formattedTaskHazard = formatTaskHazard(taskHazard);
 
-    // Optionally include approval information
-    if (req.query.includeApprovalInfo === 'true') {
-      formattedTaskHazard.approvalInfo = await getApprovalInfo(req.params.id);
-    }
+    formattedTaskHazard.latestApproval = await getApprovalInfo(req.params.id);
 
     sendResponse(res, successResponse(
       "Task Hazard retrieved successfully",
@@ -980,10 +971,12 @@ exports.supervisorApproval = async (req, res) => {
 
     transaction = await db.sequelize.transaction();
 
+    let userName = user.name || user.email || user.id;
+
     let updatedTaskHazard;
     let approvalAction;
-    let comments = `Updated by: ${user.id}.`;
-    let additionalComments = req.body.additionalComments || "";
+    let comments = `Updated by: ${userName}.`;
+    let additionalComments = req.body.comments || "";
     comments += ` Comments: ${additionalComments}`;
 
     // Handle approval or rejection

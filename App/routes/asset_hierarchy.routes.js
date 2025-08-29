@@ -63,6 +63,7 @@ const handleUploadError = (err, req, res, next) => {
 router.post('/',
   requireJsonBody(),
   validateRequired(['assets']),
+  requireRole(['admin', 'superuser']),
   validateArray('assets', true),
   assetHierarchyController.create
 );

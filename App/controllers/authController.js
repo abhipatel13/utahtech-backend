@@ -332,7 +332,7 @@ module.exports.logout = async (req, res) => {
 module.exports.getProfile = async (req, res) => {
 	try {
 		const user = await User.findByPk(req.user.id, {
-			attributes: { exclude: ['password'] },
+			attributes: ['id', 'email', 'name', 'role', 'department', 'phone_no', 'profile_pic', 'company_id', 'supervisor_id', 'createdAt', 'updatedAt'],
 			include: [
 				{
 					model: models.company,
@@ -347,8 +347,20 @@ module.exports.getProfile = async (req, res) => {
 			return sendResponse(res, response);
 		}
 
+		// Map phone_no to phone for consistency with frontend
 		const userData = {
-			...user.toJSON(),
+			id: user.id,
+			email: user.email,
+			name: user.name,
+			role: user.role,
+			department: user.department,
+			phone: user.phone_no, // Map phone_no to phone
+			profile_pic: user.profile_pic,
+			company_id: user.company_id,
+			supervisor_id: user.supervisor_id,
+			createdAt: user.createdAt,
+			updatedAt: user.updatedAt,
+			company: user.company,
 			permissions: user.getPermissions()
 		};
 
@@ -364,7 +376,7 @@ module.exports.getProfile = async (req, res) => {
 
 module.exports.updateProfile = async (req, res) => {
 	try {
-		const { email, currentPassword, newPassword } = req.body;
+		const { name, email, department, phone, currentPassword, newPassword } = req.body;
 		const userId = req.user.id;
 
 		// Find the user
@@ -400,6 +412,11 @@ module.exports.updateProfile = async (req, res) => {
 
 			updateData.email = email;
 		}
+
+		// Update other fields
+		if (name !== undefined) updateData.name = name;
+		if (department !== undefined) updateData.department = department;
+		if (phone !== undefined) updateData.phone_no = phone;
 
 		// Update password if provided
 		if (newPassword) {
@@ -438,6 +455,8 @@ module.exports.updateProfile = async (req, res) => {
 			id: updatedUser.id,
 			email: updatedUser.email,
 			name: updatedUser.name,
+			phone: updatedUser.phone_no,
+			department: updatedUser.department,
 			role: updatedUser.role,
 			company: updatedUser.company
 		});

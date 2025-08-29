@@ -43,16 +43,6 @@ class RiskAssessment extends Sequelize.Model {
           key: 'id'
         }
       },
-      systemLockoutRequired: {
-        type: DataTypes.BOOLEAN,
-        defaultValue: false,
-        field: 'system_lockout_required'
-      },
-      trainedWorkforce: {
-        type: DataTypes.BOOLEAN,
-        allowNull: false,
-        field: 'trained_workforce'
-      },
       supervisorId: {
         type: DataTypes.INTEGER,
         allowNull: false,
@@ -179,8 +169,6 @@ class RiskAssessment extends Sequelize.Model {
         'time', 
         'scopeOfWork', 
         ['asset_hierarchy_id', 'assetSystem'], 
-        'systemLockoutRequired', 
-        'trainedWorkforce', 
         'location', 
         'status',
         'createdAt'

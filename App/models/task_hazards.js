@@ -49,8 +49,9 @@ class TaskHazard extends Sequelize.Model {
         field: 'system_lockout_required'
       },
       trainedWorkforce: {
-        type: DataTypes.STRING,
+        type: DataTypes.BOOLEAN,
         allowNull: false,
+        defaultValue: false,
         field: 'trained_workforce'
       },
       supervisorId: {

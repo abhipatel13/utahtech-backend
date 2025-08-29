@@ -126,7 +126,7 @@ class Users extends Sequelize.Model {
       include: [{ model: models.company, as: 'company', attributes: ["id", "name"]}]
     });
     this.addScope('basic', {
-      attributes: ["id", "email", "name", "role"],
+      attributes: ["id", "email", "name", "role", "department", "phone_no"],
     });
     this.addScope('auth', {
         include: [{ model: models.company, as: 'company' }]
