@@ -88,6 +88,11 @@ class LicensePool extends Sequelize.Model {
         allowNull: true,
         comment: 'Additional notes about the license pool'
       },
+      stripePaymentIntentId: {
+        type: DataTypes.STRING,
+        allowNull: true,
+        comment: 'Stripe payment intent ID for this purchase'
+      },
       createdAt: {
         field: 'created_at',
         type: DataTypes.DATE,

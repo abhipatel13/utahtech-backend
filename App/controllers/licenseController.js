@@ -6,6 +6,10 @@ const Company = models.company;
 const notificationController = require('./notificationController');
 const { Op } = require('sequelize');
 const { successResponse, errorResponse, sendResponse } = require('../helper/responseHelper');
+const Stripe = require('stripe');
+
+// Initialize Stripe
+const stripe = process.env.STRIPE_SECRET_KEY ? new Stripe(process.env.STRIPE_SECRET_KEY) : null;
 
 // =================== LICENSE POOL MANAGEMENT ===================
 
@@ -41,8 +45,45 @@ exports.createLicensePool = async (req, res) => {
       return sendResponse(res, response);
     }
 
-    // TODO: Implement payment verification when payment system is ready
+    // Verify Stripe payment if payment intent ID is provided
     let paymentId = null;
+    if (stripePaymentIntentId) {
+      try {
+        // Check if this is a test payment
+        if (stripePaymentIntentId.startsWith('pi_test_')) {
+          console.log('🧪 Test payment detected:', stripePaymentIntentId);
+          paymentId = stripePaymentIntentId;
+        } else if (stripe) {
+          // Verify the payment intent with Stripe
+          const paymentIntent = await stripe.paymentIntents.retrieve(stripePaymentIntentId);
+          
+          if (paymentIntent.status !== 'succeeded') {
+            await t.rollback();
+            const response = errorResponse('Payment has not been completed successfully', 400);
+            return sendResponse(res, response);
+          }
+
+          // Verify the amount matches
+          const expectedAmount = Math.round(totalAmount * 100); // Convert to cents
+          if (paymentIntent.amount !== expectedAmount) {
+            await t.rollback();
+            const response = errorResponse('Payment amount does not match the expected amount', 400);
+            return sendResponse(res, response);
+          }
+
+          paymentId = stripePaymentIntentId;
+          console.log('💳 Payment verified for intent:', stripePaymentIntentId, 'Amount:', paymentIntent.amount);
+        } else {
+          console.log('⚠️ Stripe not configured, accepting payment intent:', stripePaymentIntentId);
+          paymentId = stripePaymentIntentId;
+        }
+      } catch (paymentError) {
+        await t.rollback();
+        console.error('Payment verification failed:', paymentError);
+        const response = errorResponse('Payment verification failed: ' + paymentError.message, 400);
+        return sendResponse(res, response);
+      }
+    }
 
     // Debug: Check user object
     console.log('🔍 User creating license pool:', {
@@ -63,7 +104,8 @@ exports.createLicensePool = async (req, res) => {
       pricePerLicense,
       poolExpiryDate: poolExpiryDate || null,
       notes,
-      companyId: req.user.company_id // Always use the authenticated user's company
+      companyId: req.user.company_id, // Always use the authenticated user's company
+      stripePaymentIntentId: paymentId // Store payment intent ID for reference
     }, { transaction: t });
 
     console.log('🏢 License pool created with company_id:', licensePool.companyId);
