@@ -243,8 +243,6 @@ exports.create = async (req, res) => {
       time: req.body.time,
       scopeOfWork: req.body.scopeOfWork,
       assetHierarchyId: req.body.assetSystem,
-      systemLockoutRequired: req.body.systemLockoutRequired || false,
-      trainedWorkforce: req.body.trainedWorkforce,
       supervisorId: supervisor.id,
       location: req.body.location,
       status: status
@@ -425,8 +423,6 @@ exports.update = async (req, res) => {
         time: req.body.time,
         scopeOfWork: req.body.scopeOfWork,
         assetHierarchyId: req.body.assetSystem || riskAssessment.assetHierarchyId,
-        systemLockoutRequired: req.body.systemLockoutRequired,
-        trainedWorkforce: req.body.trainedWorkforce,
         supervisorId: supervisor.id,
         location: req.body.location,
         status: status

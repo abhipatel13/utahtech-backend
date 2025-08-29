@@ -97,6 +97,11 @@ class AssetHierarchy extends Sequelize.Model {
         field: 'level',
         allowNull: false,
         defaultValue: 0
+      },
+      uploadOrder: {
+        type: Sequelize.INTEGER,
+        field: 'upload_order',
+        allowNull: true
       }
     },
       {
