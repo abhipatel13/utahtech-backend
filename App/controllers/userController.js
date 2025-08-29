@@ -205,11 +205,11 @@ module.exports.bulkUpsert = async (req, res) => {
 
 module.exports.createUser = async (req, res) => {
   try {
-    const { email, password, role } = req.body;
+    const { name, email, password, role, department, phone } = req.body;
 
     // Validate required fields
-    if (!email || !password || !role) {
-      const response = errorResponse('Email, password, and role are required', 400);
+    if (!name || !email || !password || !role) {
+      const response = errorResponse('Name, email, password, and role are required', 400);
       return sendResponse(res, response);
     }
 
@@ -246,10 +246,12 @@ module.exports.createUser = async (req, res) => {
 
     // Create user data
     const userData = {
-      ...req.body,
+      name,
       email,
       password: hashedPassword,
       role,
+      department: department || null,
+      phone_no: phone || null,
       company_id: req.user.company_id
     };
 
@@ -262,6 +264,8 @@ module.exports.createUser = async (req, res) => {
       email: newUser.email,
       name: newUser.name,
       role: newUser.role,
+      department: newUser.department,
+      phone: newUser.phone_no,
       company_id: newUser.company_id,
       createdAt: newUser.createdAt
     };
@@ -291,7 +295,7 @@ module.exports.getAllUser = async (req, res) => {
     }
 
     const result = await User.unscoped().findAll({
-      attributes: ["id", "email", "name", "phone_no", "profile_pic","role", "company_id","supervisor_id","createdAt","updatedAt"],
+      attributes: ["id", "email", "name", "phone_no", "department", "profile_pic","role", "company_id","supervisor_id","createdAt","updatedAt"],
       include: [
         {
           model: models.company,
@@ -305,7 +309,23 @@ module.exports.getAllUser = async (req, res) => {
       }
     });
 
-    const response = successResponse('Users retrieved successfully', result);
+    // Map the response to use consistent field names
+    const mappedResult = result.map(user => ({
+      id: user.id,
+      email: user.email,
+      name: user.name,
+      phone: user.phone_no, // Map phone_no to phone
+      department: user.department,
+      profile_pic: user.profile_pic,
+      role: user.role,
+      company_id: user.company_id,
+      supervisor_id: user.supervisor_id,
+      company: user.company,
+      createdAt: user.createdAt,
+      updatedAt: user.updatedAt
+    }));
+
+    const response = successResponse('Users retrieved successfully', mappedResult);
     return sendResponse(res, response);
 
   } catch (error) {
@@ -338,7 +358,7 @@ module.exports.getAllUserRestricted = async (req, res) => {
 module.exports.updateUser = async (req, res) => {
   try {
     const userId = req.params.id;
-    const { email, role, password, name, phone_no } = req.body;
+    const { email, role, password, name, phone, department } = req.body;
 
     // Only superusers can update users
     if (req.user.role !== 'superuser') {
@@ -405,7 +425,8 @@ module.exports.updateUser = async (req, res) => {
 
     // Update other fields
     if (name !== undefined) updateData.name = name;
-    if (phone_no !== undefined) updateData.phone_no = phone_no;
+    if (phone !== undefined) updateData.phone_no = phone;
+    if (department !== undefined) updateData.department = department;
 
     // Update the user
     const updatedUser = await user.update(updateData);
@@ -415,7 +436,8 @@ module.exports.updateUser = async (req, res) => {
       id: updatedUser.id,
       email: updatedUser.email,
       name: updatedUser.name,
-      phone_no: updatedUser.phone_no,
+      phone: updatedUser.phone_no,
+      department: updatedUser.department,
       role: updatedUser.role,
       company_id: updatedUser.company_id,
       updatedAt: updatedUser.updatedAt
