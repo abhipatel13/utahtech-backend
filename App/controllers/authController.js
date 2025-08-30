@@ -4,7 +4,7 @@ const jwt = require("jsonwebtoken");
 const bcrypt = require("bcryptjs");
 const passwordResetToken = models.reset_passwords;
 const crypto = require('crypto');
-const transporter = require('../helper/mail.helper.js');
+const { transporter, sendMail } = require('../helper/mail.helper.js');
 const { successResponse, errorResponse, sendResponse } = require('../helper/responseHelper');
 const { isValidEmail } = require('../helper/validationHelper');
 
@@ -79,6 +79,8 @@ module.exports.forgotPassword = async (req, res) => {
 	try {
 		const { email } = req.body;
 
+		console.log("email", email);
+
 		// Validate required fields
 		if (!email) {
 			const response = errorResponse('Email is required', 400);
@@ -104,38 +106,27 @@ module.exports.forgotPassword = async (req, res) => {
 		// Generate reset token
 		const resetToken = crypto.randomBytes(16).toString('hex');
 		
-		// Clean up old tokens for this user
-		await passwordResetToken.destroy({ 
-			where: { _userId: user.id } 
-		});
+		// // Clean up old tokens for this user
+		// await passwordResetToken.destroy({ 
+		// 	where: { _userId: user.id } 
+		// });
 
-		// Create new reset token
-		await passwordResetToken.create({ 
-			_userId: user.id, 
-			resettoken: resetToken 
-		});
+		// // Create new reset token
+		// await passwordResetToken.create({ 
+		// 	_userId: user.id, 
+		// 	resettoken: resetToken 
+		// });
 
-		// Send email
-		const mailOptions = {
-			from: process.env.FROM_EMAIL || '"UTS Tool" <noreply@utahtechservices.com>',
-			to: user.email,
-			subject: 'Reset Password Request',
-			html: `
-				<p>You are receiving this because you (or someone else) have requested the reset of the password for your account.</p>
-				<p>Please click on the following link, or paste this into your browser to complete the process:</p>
-				<p><a href="${process.env.LIVE_URL}/resetPassword/${resetToken}">Reset Password</a></p>
-				<p>If you did not request this, please ignore this email and your password will remain unchanged.</p>
-			`
-		};
-
-		transporter.sendMail(mailOptions, (err, info) => {
-			if (err) {
-				console.error('Email send error:', err);
-			} else {
-				console.log('Password reset email sent');
-			}
-		});
-
+		const resetUrl = `${process.env.LIVE_URL}/resetPassword/${resetToken}`;
+		
+		sendMail(user.email, 
+			'Reset Password Request', 
+			`<p>You are receiving this because you (or someone else) have requested the reset of the password for your account.</p>
+			<p>Please click on the following link, or paste this into your browser to complete the process:</p>
+			<p><a href="${resetUrl}">Reset Password</a></p>
+			<p>If you did not request this, please ignore this email and your password will remain unchanged.</p>`
+		);
+		
 		const response = successResponse('Password reset email sent successfully');
 		return sendResponse(res, response);
 

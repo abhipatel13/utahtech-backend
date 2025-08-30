@@ -7,6 +7,7 @@ const SupervisorApproval = db.supervisor_approvals;
 const { successResponse, errorResponse, sendResponse, paginatedResponse } = require('../helper/responseHelper');
 const { getCompanyId } = require('../helper/controllerHelper');
 const { Op } = require('sequelize');
+// const { sendMail } = require('../helper/mail.helper');
 
 /**
  * Helper function to convert likelihood and consequence strings to integers
@@ -884,12 +885,30 @@ exports.update = async (req, res) => {
           }, { transaction });
 
           // Create notification for supervisor (re-approval)
+          const title = "Task Hazard Requires Re-approval";
+          const message = "A task hazard has been modified and requires your re-approval.";
           await Notification.create({
             userId: supervisor.id,
-            title: "Task Hazard Requires Re-approval",
-            message: "A task hazard has been modified and requires your re-approval.",
+            title: title,
+            message: message,
             type: "approval"
           }, { transaction });
+
+          // sendMail(supervisor.email, 
+          //   title,
+          //   `
+          //   <html lang="en">    
+          //     <body>
+          //       <h2>
+          //         ${title}
+          //       </h2>
+          //       <p>
+          //         ${message}
+          //       </p>
+          //     </body>
+          //   </html>
+          //   `
+          // );
         } else {
           // No existing approval - create new one
           await SupervisorApproval.create({
@@ -901,12 +920,30 @@ exports.update = async (req, res) => {
           }, { transaction });
 
           // Create notification for supervisor (new approval)
+          const title = "Task Hazard Pending Approval";
+          const message = "A task hazard requires your approval. Please review the risks and take appropriate actions.";
           await Notification.create({
             userId: supervisor.id,
-            title: "Task Hazard Pending Approval",
-            message: "A task hazard requires your approval. Please review the risks and take appropriate actions.",
+            title: title,
+            message: message,
             type: "approval"
           }, { transaction });
+
+          // sendMail(supervisor.email, 
+          //   title,
+          //   `
+          //   <html lang="en">    
+          //     <body>
+          //       <h2>
+          //         ${title}
+          //       </h2>
+          //       <p>
+          //         ${message}
+          //       </p>
+          //     </body>
+          //   </html>
+          //   `
+          // );
         }
       }
 

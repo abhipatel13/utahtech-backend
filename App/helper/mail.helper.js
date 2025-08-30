@@ -1,15 +1,25 @@
 const nodemailer = require('nodemailer');
 
-const Transporter = nodemailer.createTransport({
-	host: 'smtp.gmail.com',
-	port: 587,
-	secure: false, // true for 465, false for other ports
+const transporter = nodemailer.createTransport({
+	host: "smtp.hostinger.com",
+	port: 465,
+	secure: true,
 	auth: {
-		user: '4x5085fbb@gmail.com', // generated ethereal user
-		pass: 'tknjooovrjfodlvy', 
-	},
-	tls: {
-		rejectUnauthorized: false,
+		user: process.env.EMAIL_USER,
+		pass: process.env.EMAIL_PASS,
 	},
 });
-module.exports = Transporter;
+
+const sendMail = async (to, subject, html) => {
+	const info = await transporter.sendMail({
+		from: `"UTS Tool" <${process.env.EMAIL_USER}>`,
+		to: to,
+		subject: subject,
+		html: html,
+	});
+	console.log("user.email", to);
+	console.log("info", info);
+};
+
+
+module.exports = {transporter, sendMail};
