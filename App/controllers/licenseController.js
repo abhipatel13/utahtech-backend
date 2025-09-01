@@ -51,7 +51,6 @@ exports.createLicensePool = async (req, res) => {
       try {
         // Check if this is a test payment
         if (stripePaymentIntentId.startsWith('pi_test_')) {
-          console.log('🧪 Test payment detected:', stripePaymentIntentId);
           paymentId = stripePaymentIntentId;
         } else if (stripe) {
           // Verify the payment intent with Stripe
@@ -72,9 +71,7 @@ exports.createLicensePool = async (req, res) => {
           }
 
           paymentId = stripePaymentIntentId;
-          console.log('💳 Payment verified for intent:', stripePaymentIntentId, 'Amount:', paymentIntent.amount);
         } else {
-          console.log('⚠️ Stripe not configured, accepting payment intent:', stripePaymentIntentId);
           paymentId = stripePaymentIntentId;
         }
       } catch (paymentError) {
@@ -84,14 +81,6 @@ exports.createLicensePool = async (req, res) => {
         return sendResponse(res, response);
       }
     }
-
-    // Debug: Check user object
-    console.log('🔍 User creating license pool:', {
-      id: req.user.id,
-      role: req.user.role,
-      company_id: req.user.company_id,
-      email: req.user.email
-    });
 
     // Create license pool
     const licensePool = await LicensePool.create({
@@ -108,8 +97,6 @@ exports.createLicensePool = async (req, res) => {
       stripePaymentIntentId: paymentId // Store payment intent ID for reference
     }, { transaction: t });
 
-    console.log('🏢 License pool created with company_id:', licensePool.companyId);
-
     // Create notification for successful pool creation
     await notificationController.createNotification(
       req.user.id,
@@ -125,7 +112,6 @@ exports.createLicensePool = async (req, res) => {
 
   } catch (error) {
     await t.rollback();
-    console.error('Error creating license pool:', error);
     const response = errorResponse('Error creating license pool', 500);
     return sendResponse(res, response);
   }
@@ -177,7 +163,6 @@ exports.getAllLicensePools = async (req, res) => {
     return sendResponse(res, response);
 
   } catch (error) {
-    console.error('Error fetching license pools:', error);
     const response = errorResponse('Error fetching license pools', 500);
     return sendResponse(res, response);
   }
@@ -234,7 +219,6 @@ exports.getLicensePoolById = async (req, res) => {
     return sendResponse(res, response);
 
   } catch (error) {
-    console.error('Error fetching license pool:', error);
     const response = errorResponse('Error fetching license pool', 500);
     return sendResponse(res, response);
   }
@@ -269,7 +253,6 @@ exports.updateLicensePool = async (req, res) => {
     return sendResponse(res, response);
 
   } catch (error) {
-    console.error('Error updating license pool:', error);
     const response = errorResponse('Error updating license pool', 500);
     return sendResponse(res, response);
   }
