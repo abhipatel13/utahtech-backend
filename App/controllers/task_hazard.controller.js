@@ -928,21 +928,23 @@ exports.update = async (req, res) => {
             type: "approval"
           }, { transaction });
 
-          // sendMail(supervisor.email, 
-          //   title,
-          //   `
-          //   <html lang="en">    
-          //     <body>
-          //       <h2>
-          //         ${title}
-          //       </h2>
-          //       <p>
-          //         ${message}
-          //       </p>
-          //     </body>
-          //   </html>
-          //   `
-          // );
+          const link = `${process.env.LIVE_URL}/safety/task-hazard`;
+
+          const html = `
+            <html lang="en">    
+              <body>
+                <h2>
+                  ${title}
+                </h2>
+                <p>
+                  ${message}
+                </p>
+                <a href="${link}">View Task Hazard</a>
+              </body>
+            </html>
+            `;
+
+          sendMail(supervisor.email, title, message, html);
         }
       }
 
