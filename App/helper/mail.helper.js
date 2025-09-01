@@ -1,25 +1,31 @@
-const nodemailer = require('nodemailer');
+const nodemailer = require("nodemailer");
 
-const transporter = nodemailer.createTransport({
-	host: "smtp.hostinger.com",
-	port: 465,
-	secure: true,
-	auth: {
-		user: process.env.EMAIL_USER,
-		pass: process.env.EMAIL_PASS,
-	},
-});
+function createTransport() {
+    return nodemailer.createTransport({
+      host: "smtp.hostinger.com",
+      port: 465,
+      secure: true,
+      auth: {
+        user: process.env.EMAIL_USER,
+        pass: process.env.EMAIL_PASS,
+      },
+    });
+}
 
-const sendMail = async (to, subject, html) => {
-	const info = await transporter.sendMail({
+function sendMail(toEmail, subject, text, html) {
+	const transporter = createTransport();
+	transporter.sendMail({
 		from: `"UTS Tool" <${process.env.EMAIL_USER}>`,
-		to: to,
+		to: toEmail,
 		subject: subject,
-		html: html,
-	});
-	console.log("user.email", to);
-	console.log("info", info);
-};
+		text: text,
+		html: html
+	})
+	.then((info) => {
+	console.log("Message sent: %s", info.messageId);
+	})
+	.catch(console.error);
+}
 
 
-module.exports = {transporter, sendMail};
+module.exports = { sendMail };

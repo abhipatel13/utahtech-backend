@@ -7,7 +7,7 @@ const SupervisorApproval = db.supervisor_approvals;
 const { successResponse, errorResponse, sendResponse, paginatedResponse } = require('../helper/responseHelper');
 const { getCompanyId } = require('../helper/controllerHelper');
 const { Op } = require('sequelize');
-// const { sendMail } = require('../helper/mail.helper');
+const { sendMail } = require('../helper/mail.helper');
 
 /**
  * Helper function to convert likelihood and consequence strings to integers
@@ -894,21 +894,20 @@ exports.update = async (req, res) => {
             type: "approval"
           }, { transaction });
 
-          // sendMail(supervisor.email, 
-          //   title,
-          //   `
-          //   <html lang="en">    
-          //     <body>
-          //       <h2>
-          //         ${title}
-          //       </h2>
-          //       <p>
-          //         ${message}
-          //       </p>
-          //     </body>
-          //   </html>
-          //   `
-          // );
+          const html = `
+            <html lang="en">    
+              <body>
+                <h2>
+                  ${title}
+                </h2>
+                <p>
+                  ${message}
+                </p>
+              </body>
+            </html>
+            `;
+
+          sendMail(supervisor.email, title, message, html);
         } else {
           // No existing approval - create new one
           await SupervisorApproval.create({

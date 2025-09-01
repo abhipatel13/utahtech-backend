@@ -4,7 +4,7 @@ const jwt = require("jsonwebtoken");
 const bcrypt = require("bcryptjs");
 const passwordResetToken = models.reset_passwords;
 const crypto = require('crypto');
-const { transporter, sendMail } = require('../helper/mail.helper.js');
+const { sendMail } = require('../helper/mail.helper.js');
 const { successResponse, errorResponse, sendResponse } = require('../helper/responseHelper');
 const { isValidEmail } = require('../helper/validationHelper');
 
@@ -79,8 +79,6 @@ module.exports.forgotPassword = async (req, res) => {
 	try {
 		const { email } = req.body;
 
-		console.log("email", email);
-
 		// Validate required fields
 		if (!email) {
 			const response = errorResponse('Email is required', 400);
@@ -105,26 +103,31 @@ module.exports.forgotPassword = async (req, res) => {
 
 		// Generate reset token
 		const resetToken = crypto.randomBytes(16).toString('hex');
+		const resetUrl = `${process.env.LIVE_URL}/auth/resetpassword/${resetToken}`;
 		
-		// // Clean up old tokens for this user
-		// await passwordResetToken.destroy({ 
-		// 	where: { _userId: user.id } 
-		// });
+		// Clean up old tokens for this user
+		await passwordResetToken.destroy({ 
+			where: { user_id: user.id } 
+		});
 
-		// // Create new reset token
-		// await passwordResetToken.create({ 
-		// 	_userId: user.id, 
-		// 	resettoken: resetToken 
-		// });
+		// Create new reset token
+		await passwordResetToken.create({ 
+			user_id: user.id, 
+			reset_token: resetToken 
+		});
 
-		const resetUrl = `${process.env.LIVE_URL}/resetPassword/${resetToken}`;
-		
-		sendMail(user.email, 
-			'Reset Password Request', 
-			`<p>You are receiving this because you (or someone else) have requested the reset of the password for your account.</p>
-			<p>Please click on the following link, or paste this into your browser to complete the process:</p>
-			<p><a href="${resetUrl}">Reset Password</a></p>
-			<p>If you did not request this, please ignore this email and your password will remain unchanged.</p>`
+		const subject = "Reset Password Request";
+		const text = `You are receiving this because you (or someone else) have requested the reset of the password for your account. Please click on the following link, or paste this into your browser to complete the process: ${resetUrl} If you did not request this, please ignore this email and your password will remain unchanged.`;
+		const html = `<p>You are receiving this because you (or someone else) have requested the reset of the password for your account.</p>
+		<p>Please click on the following link, or paste this into your browser to complete the process:</p>
+		<p><a href="${resetUrl}">Reset Password</a></p>
+		<p>If you did not request this, please ignore this email and your password will remain unchanged.</p>`;
+
+		sendMail(
+			email, 
+			subject, 
+			text, 
+			html
 		);
 		
 		const response = successResponse('Password reset email sent successfully');
@@ -139,17 +142,17 @@ module.exports.forgotPassword = async (req, res) => {
 
 module.exports.resetPassword = async (req, res) => {
 	try {
-		const { resettoken, newPassword } = req.body;
+		const { token, newPassword } = req.body;
 
 		// Validate required fields
-		if (!resettoken || !newPassword) {
+		if (!token || !newPassword) {
 			const response = errorResponse('Reset token and new password are required', 400);
 			return sendResponse(res, response);
 		}
 
 		// Find the reset token
 		const userToken = await passwordResetToken.findOne({ 
-			where: { resettoken: resettoken } 
+			where: { reset_token: token } 
 		});
 
 		if (!userToken) {
@@ -157,8 +160,15 @@ module.exports.resetPassword = async (req, res) => {
 			return sendResponse(res, response);
 		}
 
+		// check if token hasnt expired
+		if (userToken.createdAt < Date.now() - 1000 * 60 * 60 * 24) {
+			userToken.destroy();
+			const response = errorResponse('Token has expired', 400);
+			return sendResponse(res, response);
+		}
+
 		// Find the user
-		const user = await User.findByPk(userToken._userId);
+		const user = await User.findByPk(userToken.user_id);
 		if (!user) {
 			const response = errorResponse('User not found', 404);
 			return sendResponse(res, response);

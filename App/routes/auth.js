@@ -56,7 +56,7 @@ router.post('/forgot-password',
 // Reset password
 router.post('/reset-password',
   requireJsonBody(),
-  validateRequired(['resettoken', 'newPassword']),
+  validateRequired(['token', 'newPassword']),
   authController.resetPassword
 );
 
