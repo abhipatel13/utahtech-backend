@@ -40,6 +40,14 @@ router.put('/pools/:poolId',
   LicenseController.updateLicensePool
 );
 
+// Delete license pool
+router.delete('/pools/:poolId', 
+  auth, 
+  requireRole(['superuser']),
+  validateIdParam('poolId'),
+  LicenseController.deleteLicensePool
+);
+
 // Allocate license to user
 router.post('/allocations', 
   auth, 
