@@ -275,6 +275,49 @@ exports.updateLicensePool = async (req, res) => {
   }
 };
 
+// Delete license pool
+exports.deleteLicensePool = async (req, res) => {
+  try {
+    const { poolId } = req.params;
+
+    const licensePool = await LicensePool.findByPk(poolId);
+    if (!licensePool) {
+      const response = errorResponse('License pool not found', 404);
+      return sendResponse(res, response);
+    }
+
+    // Only superuser can delete license pools
+    if (req.user.role !== 'superuser') {
+      const response = errorResponse('Access denied. Only superusers can delete license pools.', 403);
+      return sendResponse(res, response);
+    }
+
+    // Check if there are active allocations
+    const activeAllocations = await LicenseAllocation.count({
+      where: {
+        licensePoolId: poolId,
+        status: 'active'
+      }
+    });
+
+    if (activeAllocations > 0) {
+      const response = errorResponse(`Cannot delete license pool. There are ${activeAllocations} active license allocations. Please revoke all active licenses before deleting the pool.`, 400);
+      return sendResponse(res, response);
+    }
+
+    // Delete the license pool
+    await licensePool.destroy();
+
+    const response = successResponse('License pool deleted successfully', null);
+    return sendResponse(res, response);
+
+  } catch (error) {
+    console.error('Error deleting license pool:', error);
+    const response = errorResponse('Error deleting license pool', 500);
+    return sendResponse(res, response);
+  }
+};
+
 // =================== LICENSE ALLOCATION MANAGEMENT ===================
 
 // Allocate license to a user
@@ -329,18 +372,27 @@ exports.allocateLicense = async (req, res) => {
       return sendResponse(res, response);
     }
 
-    // Check if user already has an allocation from this pool
+    // Check if user already has any active license allocation from any pool
     const existingAllocation = await LicenseAllocation.findOne({
       where: { 
-        licensePoolId, 
         userId,
         status: ['allocated', 'active'] 
-      }
+      },
+      include: [
+        {
+          model: LicensePool,
+          as: 'licensePool',
+          attributes: ['id', 'poolName', 'licenseType']
+        }
+      ]
     });
 
     if (existingAllocation) {
       await t.rollback();
-      const response = errorResponse('User already has an active license from this pool', 409);
+      const poolInfo = existingAllocation.licensePool 
+        ? ` from pool "${existingAllocation.licensePool.poolName}" (${existingAllocation.licensePool.licenseType})`
+        : '';
+      const response = errorResponse(`User already has an active license${poolInfo}. Please revoke the existing license before allocating a new one.`, 409);
       return sendResponse(res, response);
     }
 
