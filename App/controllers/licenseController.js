@@ -276,17 +276,17 @@ exports.deleteLicensePool = async (req, res) => {
     }
 
     // Check if there are active allocations
-    const activeAllocations = await LicenseAllocation.count({
-      where: {
-        licensePoolId: poolId,
-        status: 'active'
-      }
-    });
+    // const activeAllocations = await LicenseAllocation.count({
+    //   where: {
+    //     licensePoolId: poolId,
+    //     status: 'active'
+    //   }
+    // });
 
-    if (activeAllocations > 0) {
-      const response = errorResponse(`Cannot delete license pool. There are ${activeAllocations} active license allocations. Please revoke all active licenses before deleting the pool.`, 400);
-      return sendResponse(res, response);
-    }
+    // if (activeAllocations > 0) {
+    //   const response = errorResponse(`Cannot delete license pool. There are ${activeAllocations} active license allocations. Please revoke all active licenses before deleting the pool.`, 400);
+    //   return sendResponse(res, response);
+    // }
 
     // Delete the license pool
     await licensePool.destroy();
@@ -358,8 +358,7 @@ exports.allocateLicense = async (req, res) => {
     // Check if user already has any active license allocation from any pool
     const existingAllocation = await LicenseAllocation.findOne({
       where: { 
-        userId,
-        status: ['allocated', 'active'] 
+        userId
       },
       include: [
         {
@@ -369,8 +368,7 @@ exports.allocateLicense = async (req, res) => {
         }
       ]
     });
-
-    if (existingAllocation) {
+    if (existingAllocation && (existingAllocation.status === 'active' || existingAllocation.status === 'allocated')){
       await t.rollback();
       const poolInfo = existingAllocation.licensePool 
         ? ` from pool "${existingAllocation.licensePool.poolName}" (${existingAllocation.licensePool.licenseType})`
@@ -385,6 +383,10 @@ exports.allocateLicense = async (req, res) => {
     const validityMonths = customValidityMonths || licensePool.validityPeriodMonths;
     endDate.setMonth(endDate.getMonth() + validityMonths);
 
+    if (existingAllocation) {
+      await existingAllocation.destroy({ transaction: t });
+    }
+
     // Create license allocation
     const allocation = await LicenseAllocation.create({
       licensePoolId,
@@ -396,7 +398,8 @@ exports.allocateLicense = async (req, res) => {
       restrictions: restrictions || null,
       notes: notes || null,
       autoRenew: autoRenew || false,
-      companyId: user.company_id
+      companyId: user.company_id,
+      status: 'active'
     }, { transaction: t });
 
     // Update license pool allocated count
@@ -536,8 +539,8 @@ exports.getUserLicenseStatus = async (req, res) => {
     });
 
 
-    const activeAllocations = allocations.filter(allocation => allocation.status === 'allocated');
-    const expiredAllocations = allocations.filter(allocation => allocation.status === 'revoked');
+    const activeAllocations = allocations.filter(allocation => allocation.status === 'active' || allocation.status === 'allocated');
+    const expiredAllocations = allocations.filter(allocation => allocation.status === 'revoked' || allocation.status === 'expired');
 
     const upcomingAllocations = allocations.filter(allocation => 
       allocation.status === 'allocated' && new Date() < new Date(allocation.validFrom)
@@ -754,7 +757,7 @@ exports.getLicenseAnalytics = async (req, res) => {
 
     // Get allocation statistics
     const allocationStats = await LicenseAllocation.findAll({
-      where: companyId ? { companyId } : {},
+      where: whereClause,
       attributes: [
         'status',
         [models.sequelize.fn('COUNT', models.sequelize.col('id')), 'count']

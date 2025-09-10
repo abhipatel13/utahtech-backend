@@ -161,7 +161,7 @@ class LicenseAllocation extends Sequelize.Model {
         },
         {
           unique: true,
-          fields: ['license_pool_id', 'user_id'],
+          fields: ['license_pool_id', 'user_id', 'deleted_at'],
           name: 'unique_pool_user_allocation'
         }
       ]
