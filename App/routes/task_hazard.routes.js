@@ -35,30 +35,27 @@ router.use(ensureCompanyAccess('task_hazards'));
 // Create a new Task Hazard
 router.post("/", 
   requireJsonBody(),
-  validateRequired(['date', 'time', 'scopeOfWork', 'individual', 'supervisor', 'location']),
+  validateRequired(['date', 'time', 'scopeOfWork', 'individuals', 'supervisor', 'location']),
   validateDateTime(),
   validateArray('risks', true),
-  sanitizeInputs(['scopeOfWork', 'individual', 'supervisor', 'location']),
+  sanitizeInputs(['scopeOfWork', 'individuals', 'supervisor', 'location']),
   task_hazards.create
 );
 
-// Get supervisor approvals grouped by task (admin/superuser: all company approvals, supervisor: own approvals only)
+// Note: Supervisor approval endpoints have been moved to /supervisor-approvals
+// These routes are kept for backward compatibility but return 410 Gone
 router.get("/approvals", 
   requireRole(['admin', 'superuser', 'supervisor']),
   task_hazards.getAllApprovals
 );
 
-// Approve or deny a Task Hazard
 router.put("/:id/approval", 
   validateIdParam('id'),
   requireRole(['supervisor', 'admin', 'superuser']),
   requireJsonBody(),
-  validateRequired(['status']),
-  sanitizeInputs(['comments']),
   task_hazards.supervisorApproval
 );
 
-// Get approval history for a Task Hazard
 router.get("/:id/approval-history", 
   validateIdParam('id'),
   task_hazards.getApprovalHistory
@@ -69,6 +66,13 @@ router.get("/",
   validatePagination(),
   validateSearch(),
   task_hazards.findAll
+);
+
+// Retrieve Task Hazards with minimal data (optimized for tables)
+router.get("/minimal", 
+  validatePagination(),
+  validateSearch(),
+  task_hazards.findAllMinimal
 );
 
 // Get task hazards by company (for universal users only)
@@ -89,7 +93,7 @@ router.put("/:id",
   validateIdParam('id'),
   requireJsonBody(),
   validateDateTime(),
-  sanitizeInputs(['scopeOfWork', 'individual', 'supervisor', 'location', 'trainedWorkforce']),
+  sanitizeInputs(['scopeOfWork', 'individuals', 'supervisor', 'location', 'trainedWorkforce']),
   task_hazards.update
 );
 

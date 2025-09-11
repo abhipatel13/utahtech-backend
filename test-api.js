@@ -524,7 +524,7 @@ const testTaskHazards = async () => {
       assetSystem: null, // Set to null to avoid foreign key issues like in risk assessment
       systemLockoutRequired: true,
       trainedWorkforce: 'Yes',
-      individual: TEST_USERS.user.email,
+      individuals: TEST_USERS.user.email,
       supervisor: TEST_USERS.supervisor.email,
       location: 'Test Location',
       geoFenceLimit: 200,
@@ -586,7 +586,7 @@ const testTaskHazards = async () => {
         assetSystem: null,
         systemLockoutRequired: false,
         trainedWorkforce: 'Yes',
-        individual: TEST_USERS.user.email,
+        individuals: TEST_USERS.user.email,
         supervisor: TEST_USERS.supervisor.email,
         location: 'Updated Test Location',
         geoFenceLimit: 300,

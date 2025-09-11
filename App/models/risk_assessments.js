@@ -99,6 +99,16 @@ class RiskAssessment extends Sequelize.Model {
       as: 'risks'
     });
 
+    // Polymorphic association with supervisor approvals
+    this.hasMany(models.supervisor_approvals, {
+      foreignKey: 'approvableId',
+      constraints: false,
+      scope: {
+        approvableType: 'risk_assessments'
+      },
+      as: 'approvals'
+    });
+
     // Add hooks for cascading soft delete/restore
     this.addHook('beforeDestroy', async (riskAssessment, options) => {
       const { transaction } = options;

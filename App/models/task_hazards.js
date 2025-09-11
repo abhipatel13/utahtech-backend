@@ -114,9 +114,13 @@ class TaskHazard extends Sequelize.Model {
       as: 'individuals'
     });
 
-    // Association with supervisor approvals
+    // Polymorphic association with supervisor approvals
     this.hasMany(models.supervisor_approvals, {
-      foreignKey: 'taskHazardId',
+      foreignKey: 'approvableId',
+      constraints: false,
+      scope: {
+        approvableType: 'task_hazards'
+      },
       as: 'approvals'
     });
 
@@ -133,7 +137,10 @@ class TaskHazard extends Sequelize.Model {
 
         // 2. Soft delete associated supervisor approvals
         await models.supervisor_approvals.destroy({
-          where: { taskHazardId: taskHazard.id },
+          where: { 
+            approvableId: taskHazard.id,
+            approvableType: 'task_hazards'
+           },
           transaction
         });
 

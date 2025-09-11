@@ -3,11 +3,10 @@ const TaskHazard = db.task_hazards;
 const TaskRisk = db.task_risks;
 const User = db.user;
 const Notification = db.notifications;
-const SupervisorApproval = db.supervisor_approvals;
 const { successResponse, errorResponse, sendResponse, paginatedResponse } = require('../helper/responseHelper');
 const { getCompanyId } = require('../helper/controllerHelper');
 const { Op } = require('sequelize');
-const { sendMail } = require('../helper/mail.helper');
+const supervisorApprovalController = require('./supervisor_approval.controller');
 
 /**
  * Helper function to convert likelihood and consequence strings to integers
@@ -123,52 +122,10 @@ const determineTaskHazardStatus = (risks, requestedStatus = 'Pending') => {
 
 /**
  * Helper function to get approval information for a task hazard
- * Only fetches when needed to avoid unnecessary queries
+ * Uses the new polymorphic supervisor approval system
  */
 const getApprovalInfo = async (taskHazardId) => {
-  try {
-    // Get current active approval (not invalidated)
-    const currentApproval = await SupervisorApproval.findOne({
-      where: {
-        taskHazardId,
-        isInvalidated: false
-      },
-      include: [
-        { model: User, as: 'supervisor', attributes: ['id', 'email', 'name', 'role'] }
-      ],
-      order: [['createdAt', 'DESC']]
-    });
-
-    // Get latest approved approval
-    const latestApproval = await SupervisorApproval.findOne({
-      where: {
-        taskHazardId,
-        isInvalidated: false
-      },
-      include: [
-        { model: User, as: 'supervisor', attributes: ['id', 'email', 'name', 'role'] }
-      ],
-      order: [['processedAt', 'DESC']]
-    });
-
-    if(currentApproval){
-      return {
-        id: currentApproval?.id,
-        status: currentApproval?.status,
-        createdAt: currentApproval?.createdAt,
-        processedAt: currentApproval?.processedAt,
-        comments: currentApproval?.comments,
-        isInvalidated: false,
-        isLatest: true,
-        supervisor: currentApproval?.supervisor,
-        taskHazardData: currentApproval?.taskHazardSnapshot,
-      }
-    }
-    return null;
-  } catch (error) {
-    console.error('Error fetching approval info:', error);
-    return null;
-  }
+  return await supervisorApprovalController.getApprovalInfo(taskHazardId, 'task_hazards');
 };
 
 /**
@@ -183,9 +140,9 @@ const formatTaskHazard = (taskHazard) => {
   
   // Get all individuals from the many-to-many association via junction table
   if (taskHazard.individuals && taskHazard.individuals.length > 0) {
-    formatted.individual = taskHazard.individuals.map(user => user.email).join(', ');
+    formatted.individuals = taskHazard.individuals.map(user => user.email).join(', ');
   } else {
-    formatted.individual = ''; // No individuals assigned
+    formatted.individuals = ''; // No individuals assigned
   }
   
   // Add basic approval flag
@@ -278,7 +235,7 @@ exports.create = async (req, res) => {
     // Parse and validate individuals (database lookup)
     let individuals, supervisor;
     try {
-      individuals = await parseAndValidateIndividuals(req.body.individual, transaction);
+      individuals = await parseAndValidateIndividuals(req.body.individuals, transaction);
       supervisor = await findAndValidateSupervisor(req.body.supervisor, transaction);
     } catch (validationError) {
       await transaction.rollback();
@@ -314,35 +271,13 @@ exports.create = async (req, res) => {
     
     const requiresSignature = req.body.risks.some(risk => risk.requiresSupervisorSignature);
     if(requiresSignature && status === "Pending"){
-      // Reload task hazard with all associations for snapshot
-      const taskHazardWithAssociations = await TaskHazard.findByPk(taskHazard.id, {
-        include: [
-          { model: User, as: 'supervisor' },
-          { model: User, as: 'individuals' }
-        ],
+      // Create supervisor approval using the new polymorphic system
+      await supervisorApprovalController.createApproval(
+        taskHazard.id,
+        'task_hazards',
+        supervisor.id,
         transaction
-      });
-
-      // Create supervisor approval record with snapshot
-      const { taskHazardSnapshot, risksSnapshot } = SupervisorApproval.createSnapshot(
-        taskHazardWithAssociations
       );
-
-      const supervisorApproval = await SupervisorApproval.create({
-        taskHazardId: taskHazard.id,
-        supervisorId: supervisor.id,
-        status: 'pending',
-        taskHazardSnapshot,
-        risksSnapshot
-      }, { transaction });
-
-      // Create notification for supervisor
-      await Notification.create({
-        userId: supervisor.id,
-        title: "Task Hazard Pending Approval",
-        message: "A task hazard requires your approval. Please review the risks and take appropriate actions.",
-        type: "approval"
-      }, { transaction });
     }
     
     // Commit transaction
@@ -366,12 +301,17 @@ exports.create = async (req, res) => {
   }
 };
 
-/**
- * Retrieve supervisor approvals for the authenticated user's company
- * - Admin/superuser: Can see all approvals for the company
- * - Supervisor: Can only see approvals they are responsible for
- */
+// Note: Supervisor approval functionality moved to supervisor_approval.controller.js
+// This method is deprecated - use supervisor approval routes instead
 exports.getAllApprovals = async (req, res) => {
+  return sendResponse(res, errorResponse(
+    "This endpoint has been moved. Please use /supervisor-approvals instead.",
+    410 // Gone
+  ));
+};
+
+// Deprecated method - keeping for backward compatibility
+exports._deprecatedGetAllApprovals = async (req, res) => {
   try {
     // Validate user company access
     const userCompanyId = req.user.company?.id;
@@ -657,6 +597,94 @@ exports.findAll = async (req, res) => {
 };
 
 /**
+ * Retrieve Task Hazards with minimal data for table/list display
+ * Optimized for performance - excludes heavy associations like risks
+ */
+exports.findAllMinimal = async (req, res) => {
+  try {
+    // Build effective where clause
+    let effectiveWhere = {};
+
+    if (req.whereClause && typeof req.whereClause === 'object') {
+      const wc = req.whereClause;
+      if (wc.companyId || wc.company_id) effectiveWhere.companyId = wc.companyId ?? wc.company_id;
+    }
+
+    // If nothing provided by middleware, derive from helpers (non-universal users)
+    if ((!effectiveWhere.companyId ) && req.user?.role !== 'universal_user') {
+      const userCompanyId = getCompanyId(req);
+      if (userCompanyId) effectiveWhere.companyId = userCompanyId;
+    }
+
+    // Get pagination and search
+    const { page, limit, offset, search } = req.query;
+
+    // Apply simple search on scopeOfWork/location
+    if (search) {
+      effectiveWhere[Op.or] = [
+        { scopeOfWork: { [Op.like]: `%${search}%` } },
+        { location: { [Op.like]: `%${search}%` } }
+      ];
+    }
+
+    // Fetch minimal data with limited associations
+    const { count, rows: taskHazards } = await TaskHazard.unscoped().findAndCountAll({
+      where: effectiveWhere,
+      include: [
+        { model: db.company, 
+          as: 'company', 
+          attributes: ['id', 'name'] },
+        { model: db.task_risks, as: 'risks'},
+        { model: db.user, as: 'supervisor', attributes: ["email"] }
+      ],
+      attributes: [
+        'id', 
+        'date', 
+        'time', 
+        'scopeOfWork', 
+        ['asset_hierarchy_id', 'assetSystem'], 
+        'location', 
+        'status', 
+        'createdAt'
+      ],
+      limit,
+      offset,
+      order: [['createdAt', 'DESC']],
+      distinct: true
+    });
+
+    // Format minimal response
+    const formattedTaskHazards = taskHazards.map(taskHazard => ({
+      id: taskHazard.id,
+      date: taskHazard.date,
+      time: taskHazard.time,
+      scopeOfWork: taskHazard.scopeOfWork,
+      assetSystem: taskHazard.assetSystem,
+      location: taskHazard.location,
+      status: taskHazard.status,
+      supervisor: taskHazard.supervisor?.email || '',
+      createdAt: taskHazard.createdAt
+    }));
+
+    // Send paginated response using helper
+    sendResponse(res, paginatedResponse(
+      formattedTaskHazards,
+      page,
+      limit,
+      count,
+      "Task Hazards (minimal) retrieved successfully"
+    ));
+    
+  } catch (error) {
+    console.error('Error retrieving task hazards (minimal):', error);
+    sendResponse(res, errorResponse(
+      error.message || "Some error occurred while retrieving task hazards.",
+      500
+    ));
+  }
+};
+
+/**
  * Find Task Hazards by Company ID (for universal users only)
  * @param {object} req - Express request object
  * @param {object} res - Express response object
@@ -796,13 +824,9 @@ exports.update = async (req, res) => {
       return sendResponse(res, errorResponse("Task Hazard not found", 404));
     }
 
-    // Get current active approval if exists
-    const currentApproval = await SupervisorApproval.findOne({
-      where: {
-        taskHazardId: req.body.id
-      },
-      order: [['createdAt', 'DESC']]
-    });
+    // Get current active approval if exists using the new polymorphic system
+    const currentApproval = await supervisorApprovalController.getApprovalInfo(req.body.id, 'task_hazards');
+    const currentApprovalRecord = currentApproval ? await db.supervisor_approvals.findByPk(currentApproval.id) : null;
 
     // Check if any risks require supervisor signature
     const requiresSignature = req.body.risks.some(risk => risk.requiresSupervisorSignature);
@@ -818,7 +842,7 @@ exports.update = async (req, res) => {
     // Validate individuals and supervisor (before transaction for better error handling)
     let individuals, supervisor;
     try {
-      individuals = await parseAndValidateIndividuals(req.body.individual);
+      individuals = await parseAndValidateIndividuals(req.body.individuals);
       supervisor = await findAndValidateSupervisor(req.body.supervisor);
     } catch (validationError) {
       return sendResponse(res, errorResponse(validationError.message, 404));
@@ -849,102 +873,25 @@ exports.update = async (req, res) => {
         updatedRisks = await updateTaskHazardRisks(taskHazard, req.body.risks, transaction);
       }
 
-      // Handle approval logic - if status is Pending and requires signature, create approval record
+      // Handle approval logic using the new polymorphic system
       if (requiresSignature && status === "Pending") {
-        // Reload task hazard with associations for snapshot
-        const taskHazardWithAssociations = await TaskHazard.findByPk(taskHazard.id, {
-          include: [
-            { model: User, as: 'supervisor' },
-            { model: User, as: 'individuals' }
-          ],
-          transaction
-        });
-
-        // Create snapshot for the approval
-        const { taskHazardSnapshot, risksSnapshot } = SupervisorApproval.createSnapshot(
-          taskHazardWithAssociations
-        );
-
-        // Handle existing approval
-        if (currentApproval) {
-          // Invalidate the existing approval
-          await currentApproval.invalidate(null, transaction);
-
-          // Create new approval record
-          const newApproval = await SupervisorApproval.create({
-            taskHazardId: taskHazard.id,
-            supervisorId: supervisor.id,
-            status: 'pending',
-            taskHazardSnapshot,
-            risksSnapshot
-          }, { transaction });
-
-          // Update the invalidated approval to reference the new one
-          await currentApproval.update({
-            replacedByApprovalId: newApproval.id
-          }, { transaction });
-
-          // Create notification for supervisor (re-approval)
-          const title = "Task Hazard Requires Re-approval";
-          const message = "A task hazard has been modified and requires your re-approval.";
-          await Notification.create({
-            userId: supervisor.id,
-            title: title,
-            message: message,
-            type: "approval"
-          }, { transaction });
-
-          const html = `
-            <html lang="en">    
-              <body>
-                <h2>
-                  ${title}
-                </h2>
-                <p>
-                  ${message}
-                </p>
-              </body>
-            </html>
-            `;
-
-          sendMail(supervisor.email, title, message, html);
+        if (currentApprovalRecord) {
+          // Handle re-approval (existing approval exists)
+          await supervisorApprovalController.handleReapproval(
+            taskHazard.id,
+            'task_hazards',
+            supervisor.id,
+            currentApprovalRecord,
+            transaction
+          );
         } else {
           // No existing approval - create new one
-          await SupervisorApproval.create({
-            taskHazardId: taskHazard.id,
-            supervisorId: supervisor.id,
-            status: 'pending',
-            taskHazardSnapshot,
-            risksSnapshot
-          }, { transaction });
-
-          // Create notification for supervisor (new approval)
-          const title = "Task Hazard Pending Approval";
-          const message = "A task hazard requires your approval. Please review the risks and take appropriate actions.";
-          await Notification.create({
-            userId: supervisor.id,
-            title: title,
-            message: message,
-            type: "approval"
-          }, { transaction });
-
-          const link = `${process.env.LIVE_URL}/safety/task-hazard`;
-
-          const html = `
-            <html lang="en">    
-              <body>
-                <h2>
-                  ${title}
-                </h2>
-                <p>
-                  ${message}
-                </p>
-                <a href="${link}">View Task Hazard</a>
-              </body>
-            </html>
-            `;
-
-          sendMail(supervisor.email, title, message, html);
+          await supervisorApprovalController.createApproval(
+            taskHazard.id,
+            'task_hazards',
+            supervisor.id,
+            transaction
+          );
         }
       }
 
@@ -970,12 +917,17 @@ exports.update = async (req, res) => {
   }
 };
 
-/**
- * Supervisor approval of a task hazard
- * Updates the approval record and task hazard status
- * Creates notifications for individuals in the task hazard
- */
+// Note: Supervisor approval functionality moved to supervisor_approval.controller.js
+// This method is deprecated - use supervisor approval routes instead
 exports.supervisorApproval = async (req, res) => {
+  return sendResponse(res, errorResponse(
+    "This endpoint has been moved. Please use /supervisor-approvals/{id} instead.",
+    410 // Gone
+  ));
+};
+
+// Deprecated method - keeping for backward compatibility
+exports._deprecatedSupervisorApproval = async (req, res) => {
   let transaction;
   
   try {
@@ -1089,11 +1041,17 @@ exports.supervisorApproval = async (req, res) => {
   }
 }
 
-/**
- * Get approval history for a specific task hazard
- * Returns all approval records including invalidated ones for audit trail
- */
+// Note: Approval history functionality moved to supervisor_approval.controller.js
+// This method is deprecated - use supervisor approval routes instead
 exports.getApprovalHistory = async (req, res) => {
+  return sendResponse(res, errorResponse(
+    "This endpoint has been moved. Please use /supervisor-approvals/{id}/history?approvableType=task_hazards instead.",
+    410 // Gone
+  ));
+};
+
+// Deprecated method - keeping for backward compatibility
+exports._deprecatedGetApprovalHistory = async (req, res) => {
   try {
     // Validate user company access
     const userCompanyId = getCompanyId(req);
@@ -1181,13 +1139,6 @@ exports.delete = async (req, res) => {
 
     // Delete within transaction for data consistency
     await db.sequelize.transaction(async (transaction) => {
-      // Delete associated risks (foreign key constraint requires this first)
-      await TaskRisk.destroy({
-        where: { taskHazardId: id },
-        transaction
-      });
-
-      // Delete the task hazard (junction table entries will be cascade deleted)
       await taskHazard.destroy({ transaction });
     });
 

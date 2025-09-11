@@ -1,6 +1,16 @@
 const { Sequelize } = require('sequelize');
 
+// Helper function for polymorphic associations
+const uppercaseFirst = str => `${str[0].toUpperCase()}${str.substr(1)}`;
+
 class SupervisorApproval extends Sequelize.Model {
+  // Instance method for lazy loading the approvable entity
+  getApprovable(options) {
+    if (!this.approvableType) return Promise.resolve(null);
+    const mixinMethodName = `get${uppercaseFirst(this.approvableType.replace('_', ''))}`;
+    return this[mixinMethodName](options);
+  }
+
   static init(sequelize, DataTypes) {
     return super.init({
       id: {
@@ -10,14 +20,15 @@ class SupervisorApproval extends Sequelize.Model {
         autoIncrement: true,
         field: 'id'
       },
-      taskHazardId: {
+      approvableId: {
         type: DataTypes.INTEGER,
         allowNull: false,
-        field: 'task_hazard_id',
-        references: {
-          model: 'task_hazards',
-          key: 'id'
-        }
+        field: 'approvable_id'
+      },
+      approvableType: {
+        type: DataTypes.STRING,
+        allowNull: false,
+        field: 'approvable_type'
       },
       supervisorId: {
         type: DataTypes.INTEGER,
@@ -44,11 +55,11 @@ class SupervisorApproval extends Sequelize.Model {
         allowNull: true,
         field: 'comments'
       },
-      // Snapshot of the task hazard at the time of approval request
-      taskHazardSnapshot: {
+      // Snapshot of the approvable entity at the time of approval request
+      approvableSnapshot: {
         type: DataTypes.JSON,
         allowNull: false,
-        field: 'task_hazard_snapshot'
+        field: 'approvable_snapshot'
       },
       // Snapshot of all risks at the time of approval request
       risksSnapshot: {
@@ -83,10 +94,18 @@ class SupervisorApproval extends Sequelize.Model {
   }
 
   static associate(models) {
-    // Belongs to a task hazard
+    // Polymorphic associations with task hazards
     this.belongsTo(models.task_hazards, {
-      foreignKey: 'taskHazardId',
-      as: 'taskHazard'
+      foreignKey: 'approvableId',
+      constraints: false,
+      as: 'task_hazards'
+    });
+
+    // Polymorphic associations with risk assessments
+    this.belongsTo(models.risk_assessments, {
+      foreignKey: 'approvableId',
+      constraints: false,
+      as: 'risk_assessments'
     });
 
     // Belongs to a supervisor (user)
@@ -104,6 +123,23 @@ class SupervisorApproval extends Sequelize.Model {
     this.hasOne(models.supervisor_approvals, {
       foreignKey: 'replacedByApprovalId',
       as: 'replacesApproval'
+    });
+
+    // Add afterFind hook for eager loading support
+    this.addHook('afterFind', findResult => {
+      if (!Array.isArray(findResult)) findResult = [findResult];
+      for (const instance of findResult) {
+        if (instance.approvableType === 'task_hazards' && instance.task_hazards !== undefined) {
+          instance.approvable = instance.task_hazards;
+        } else if (instance.approvableType === 'risk_assessments' && instance.risk_assessments !== undefined) {
+          instance.approvable = instance.risk_assessments;
+        }
+        // To prevent mistakes, remove concrete fields
+        delete instance.task_hazards;
+        delete instance.dataValues.task_hazards;
+        delete instance.risk_assessments;
+        delete instance.dataValues.risk_assessments;
+      }
     });
   }
 
@@ -142,36 +178,67 @@ class SupervisorApproval extends Sequelize.Model {
     return this.update(updateData, options);
   }
 
-  // Static method to create a snapshot of task hazard and risks
-  static createSnapshot(taskHazard) {
-    // Create a clean snapshot of the task hazard (remove sensitive/unnecessary fields)
-    const taskHazardSnapshot = {
-      id: taskHazard.id,
-      date: taskHazard.date,
-      time: taskHazard.time,
-      scopeOfWork: taskHazard.scopeOfWork,
-      assetHierarchyId: taskHazard.assetHierarchyId,
-      systemLockoutRequired: taskHazard.systemLockoutRequired,
-      trainedWorkforce: taskHazard.trainedWorkforce,
-      location: taskHazard.location,
-      geoFenceLimit: taskHazard.geoFenceLimit,
-      individuals: taskHazard.individuals ? taskHazard.individuals.map(ind => ({
-        id: ind.id,
-        email: ind.email,
-        name: ind.name,
-        role: ind.role
-      })) : [],
-      supervisor: taskHazard.supervisor ? {
-        id: taskHazard.supervisor.id,
-        email: taskHazard.supervisor.email,
-        name: taskHazard.supervisor.name,
-        role: taskHazard.supervisor.role
-      } : null,
-      snapshotTakenAt: new Date()
-    };
+  // Static method to create a snapshot of approvable entity and risks
+  static createSnapshot(approvable, approvableType) {
+    let approvableSnapshot;
+
+    if (approvableType === 'task_hazards') {
+      // Create a clean snapshot of the task hazard (remove sensitive/unnecessary fields)
+      approvableSnapshot = {
+        id: approvable.id,
+        date: approvable.date,
+        time: approvable.time,
+        scopeOfWork: approvable.scopeOfWork,
+        assetHierarchyId: approvable.assetHierarchyId,
+        systemLockoutRequired: approvable.systemLockoutRequired,
+        trainedWorkforce: approvable.trainedWorkforce,
+        location: approvable.location,
+        geoFenceLimit: approvable.geoFenceLimit,
+        individuals: approvable.individuals ? approvable.individuals.map(ind => ({
+          id: ind.id,
+          email: ind.email,
+          name: ind.name,
+          role: ind.role
+        })) : [],
+        supervisor: approvable.supervisor ? {
+          id: approvable.supervisor.id,
+          email: approvable.supervisor.email,
+          name: approvable.supervisor.name,
+          role: approvable.supervisor.role
+        } : null,
+        snapshotTakenAt: new Date(),
+        type: 'task_hazards'
+      };
+    } else if (approvableType === 'risk_assessments') {
+      // Create a clean snapshot of the risk assessment
+      approvableSnapshot = {
+        id: approvable.id,
+        date: approvable.date,
+        time: approvable.time,
+        scopeOfWork: approvable.scopeOfWork,
+        assetHierarchyId: approvable.assetHierarchyId,
+        location: approvable.location,
+        individuals: approvable.individuals ? approvable.individuals.map(ind => ({
+          id: ind.id,
+          email: ind.email,
+          name: ind.name,
+          role: ind.role
+        })) : [],
+        supervisor: approvable.supervisor ? {
+          id: approvable.supervisor.id,
+          email: approvable.supervisor.email,
+          name: approvable.supervisor.name,
+          role: approvable.supervisor.role
+        } : null,
+        snapshotTakenAt: new Date(),
+        type: 'risk_assessments'
+      };
+    } else {
+      throw new Error(`Unsupported approvable type: ${approvableType}`);
+    }
 
     // Create a clean snapshot of all risks
-    const risksSnapshot = taskHazard.risks.map(risk => ({
+    const risksSnapshot = approvable.risks ? approvable.risks.map(risk => ({
       id: risk.id || null,
       riskDescription: risk.riskDescription,
       riskType: risk.riskType,
@@ -182,10 +249,10 @@ class SupervisorApproval extends Sequelize.Model {
       mitigatedLikelihood: risk.mitigatedLikelihood,
       mitigatedConsequence: risk.mitigatedConsequence,
       requiresSupervisorSignature: risk.requiresSupervisorSignature
-    }));
+    })) : [];
 
     return {
-      taskHazardSnapshot,
+      approvableSnapshot,
       risksSnapshot
     };
   }

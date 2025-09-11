@@ -3,7 +3,7 @@ const RiskAssessment = db.risk_assessments;
 const RiskAssessmentRisk = db.risk_assessment_risks;
 const User = db.user;
 const { successResponse, errorResponse, sendResponse, paginatedResponse } = require('../helper/responseHelper');
-
+const supervisorApprovalController = require('./supervisor_approval.controller');
 /**
  * Helper function to get user's company ID with validation
  */
@@ -13,6 +13,14 @@ const getUserCompanyId = (req) => {
     throw new Error("User's company information is missing");
   }
   return userCompanyId;
+};
+
+/**
+ * Helper function to get approval information for a risk assessment
+ * Uses the new polymorphic supervisor approval system
+ */
+const getApprovalInfo = async (riskAssessmentId) => {
+  return await supervisorApprovalController.getApprovalInfo(riskAssessmentId, 'risk_assessments');
 };
 
 /**
@@ -115,15 +123,6 @@ const processRisks = (risks) => {
 };
 
 /**
- * Helper function to determine risk assessment status based on risks
- */
-const determineRiskAssessmentStatus = (risks, requestedStatus = 'Pending') => {
-  // If any risk requires supervisor signature, status must be 'Pending'
-  const requiresSignature = risks.some(risk => risk.requiresSupervisorSignature);
-  return requiresSignature ? 'Pending' : requestedStatus;
-};
-
-/**
  * Helper function to format risk assessment for frontend response
  * Converts junction table associations to comma-separated email string
  */
@@ -141,6 +140,93 @@ const formatRiskAssessment = (riskAssessment) => {
   }
   
   return formatted;
+};
+
+/**
+ * Helper function to detect if risk assessment has changes
+ * Compares current risk assessment with update data to determine if approval is needed
+ */
+const hasRiskAssessmentChanged = (currentAssessment, updateData, newIndividualIds, newSupervisorId) => {
+  // Check main fields for changes
+  const mainFieldsChanged = 
+    currentAssessment.date !== updateData.date ||
+    currentAssessment.time !== updateData.time ||
+    currentAssessment.scopeOfWork !== updateData.scopeOfWork ||
+    currentAssessment.assetHierarchyId !== updateData.assetSystem ||
+    currentAssessment.supervisorId !== newSupervisorId ||
+    currentAssessment.location !== updateData.location;
+
+  if (mainFieldsChanged) {
+    return true;
+  }
+
+  // Check if individuals have changed
+  const currentIndividualIds = (currentAssessment.individuals || [])
+    .map(ind => ind.id)
+    .sort((a, b) => a - b);
+  const sortedNewIndividualIds = [...newIndividualIds].sort((a, b) => a - b);
+  
+  const individualsChanged = 
+    currentIndividualIds.length !== sortedNewIndividualIds.length ||
+    !currentIndividualIds.every((id, index) => id === sortedNewIndividualIds[index]);
+
+  if (individualsChanged) {
+    return true;
+  }
+
+  // Check if risks have changed
+  const currentRisks = currentAssessment.risks || [];
+  const newRisks = updateData.risks || [];
+
+  // Different number of risks = change
+  if (currentRisks.length !== newRisks.length) {
+    return true;
+  }
+
+  // Create maps for comparison
+  const currentRiskMap = new Map();
+  currentRisks.forEach(risk => {
+    currentRiskMap.set(risk.id, {
+      riskDescription: risk.riskDescription,
+      riskType: risk.riskType,
+      asIsLikelihood: risk.asIsLikelihood,
+      asIsConsequence: risk.asIsConsequence,
+      mitigatingAction: risk.mitigatingAction,
+      mitigatingActionType: risk.mitigatingActionType,
+      mitigatedLikelihood: risk.mitigatedLikelihood,
+      mitigatedConsequence: risk.mitigatedConsequence,
+      requiresSupervisorSignature: risk.requiresSupervisorSignature || false
+    });
+  });
+
+  // Check each new risk for changes
+  for (const newRisk of newRisks) {
+    const currentRisk = currentRiskMap.get(newRisk.id);
+    
+    if (!currentRisk) {
+      // New risk added
+      return true;
+    }
+
+    // Compare risk attributes
+    const riskChanged = 
+      currentRisk.riskDescription !== newRisk.riskDescription ||
+      currentRisk.riskType !== newRisk.riskType ||
+      currentRisk.asIsLikelihood !== convertToInteger(newRisk.asIsLikelihood) ||
+      currentRisk.asIsConsequence !== convertToInteger(newRisk.asIsConsequence) ||
+      currentRisk.mitigatingAction !== newRisk.mitigatingAction ||
+      currentRisk.mitigatingActionType !== newRisk.mitigatingActionType ||
+      currentRisk.mitigatedLikelihood !== convertToInteger(newRisk.mitigatedLikelihood) ||
+      currentRisk.mitigatedConsequence !== convertToInteger(newRisk.mitigatedConsequence) ||
+      currentRisk.requiresSupervisorSignature !== (newRisk.requiresSupervisorSignature || false);
+
+    if (riskChanged) {
+      return true;
+    }
+  }
+
+  // No changes detected
+  return false;
 };
 
 /**
@@ -212,7 +298,6 @@ const findRiskAssessmentByIdAndCompany = async (id, companyId, includeAssociatio
  * Handles all individuals through the junction table (many-to-many relationship)
  */
 exports.create = async (req, res) => {
-  console.log("STARTED: Risk Assessment creation");
   let transaction;
   
   try {
@@ -234,7 +319,7 @@ exports.create = async (req, res) => {
 
     // Process risks and determine status
     const processedRisks = processRisks(req.body.risks);
-    const status = determineRiskAssessmentStatus(processedRisks, req.body.status);
+    const status = "Pending";
 
     // Create Risk Assessment (using junction table for all individuals)
     const riskAssessment = await RiskAssessment.create({
@@ -255,6 +340,13 @@ exports.create = async (req, res) => {
     await Promise.all(processedRisks.map(async risk => {
       await riskAssessment.createRisk(risk, { transaction });
     }));
+    
+    await supervisorApprovalController.createApproval(
+      riskAssessment.id,
+      'risk_assessments',
+      supervisor.id,
+      transaction
+    );
     
     // Commit transaction
     await transaction.commit();
@@ -286,22 +378,153 @@ exports.findAll = async (req, res) => {
     // Validate user company access
     const userCompanyId = getUserCompanyId(req);
     
-    // Fetch risk assessments with optimized query (default scope includes all needed associations)
-    const riskAssessments = await RiskAssessment.findAll({
-      where: { companyId: userCompanyId }
-      // Default scope automatically includes: company, supervisor, individuals
+    // Get pagination and search parameters
+    const { page, limit, offset, search } = req.query;
+
+    // Build where clause for search
+    let whereClause = { companyId: userCompanyId };
+    
+    // Apply simple search on scopeOfWork/location
+    if (search) {
+      const { Op } = require('sequelize');
+      whereClause[Op.or] = [
+        { scopeOfWork: { [Op.like]: `%${search}%` } },
+        { location: { [Op.like]: `%${search}%` } }
+      ];
+    }
+
+    // Fetch with distinct to prevent overcount due to joins in default scope
+    const { count, rows: riskAssessments } = await RiskAssessment.unscoped().findAndCountAll({
+      where: whereClause,
+      include: [
+        { model: db.company, 
+          as: 'company', 
+          attributes: ['id', 'name'] },
+        { model: db.risk_assessment_risks, as: 'risks' },
+        { model: db.user, as: 'supervisor', attributes: ["id", "email", "name", "role"] },
+        { model: db.user, as: 'individuals', attributes: ["id", "email", "name", "role"] },
+        { model: db.asset_hierarchy, as: 'asset', attributes: ["id", "name"] }
+      ],
+      attributes: [
+        'id', 
+        'date', 
+        'time', 
+        'scopeOfWork', 
+        'location', 
+        'status',
+        'createdAt'
+      ],
+      limit,
+      offset,
+      order: [['createdAt', 'DESC']],
+      distinct: true,
     });
 
     // Format for frontend response
     const formattedRiskAssessments = riskAssessments.map(formatRiskAssessment);
 
-    sendResponse(res, successResponse(
-      "Risk Assessments retrieved successfully",
-      formattedRiskAssessments
-    ));
+    // Send paginated response if pagination parameters exist
+    if (page && limit) {
+      sendResponse(res, paginatedResponse(
+        formattedRiskAssessments,
+        page,
+        limit,
+        count,
+        "Risk Assessments retrieved successfully"
+      ));
+    } else {
+      sendResponse(res, successResponse(
+        "Risk Assessments retrieved successfully",
+        formattedRiskAssessments
+      ));
+    }
     
   } catch (error) {
     console.error('Error retrieving risk assessments:', error);
+    sendResponse(res, errorResponse(
+      error.message || "Some error occurred while retrieving risk assessments.",
+      500
+    ));
+  }
+};
+
+/**
+ * Retrieve Risk Assessments with minimal data for table/list display
+ * Optimized for performance - excludes heavy associations like risks
+ */
+exports.findAllMinimal = async (req, res) => {
+  try {
+    // Validate user company access
+    const userCompanyId = getUserCompanyId(req);
+    
+    // Get pagination and search parameters
+    const { page, limit, offset, search } = req.query;
+
+    // Build where clause for search
+    let whereClause = { companyId: userCompanyId };
+    
+    // Apply simple search on scopeOfWork/location
+    if (search) {
+      const { Op } = require('sequelize');
+      whereClause[Op.or] = [
+        { scopeOfWork: { [Op.like]: `%${search}%` } },
+        { location: { [Op.like]: `%${search}%` } }
+      ];
+    }
+
+    // Fetch minimal data with limited associations
+    const { count, rows: riskAssessments } = await RiskAssessment.unscoped().findAndCountAll({
+      where: whereClause,
+      include: [
+        {
+          model: User,
+          as: 'supervisor',
+          attributes: ['email']
+        },
+        {
+          model: db.company,
+          as: 'company',
+          attributes: ['id', 'name']
+        }
+      ],
+      attributes: [
+        'id',
+        'date', 
+        'time',
+        'scopeOfWork',
+        'location',
+        'status',
+        'createdAt'
+      ],
+      limit,
+      offset,
+      order: [['createdAt', 'DESC']],
+      distinct: true
+    });
+
+    // Format minimal response
+    const formattedRiskAssessments = riskAssessments.map(ra => ({
+      id: ra.id,
+      date: ra.date,
+      time: ra.time,
+      scopeOfWork: ra.scopeOfWork,
+      location: ra.location,
+      status: ra.status,
+      supervisor: ra.supervisor?.email || '',
+      createdAt: ra.createdAt
+    }));
+
+    // Send paginated response
+    sendResponse(res, paginatedResponse(
+      formattedRiskAssessments,
+      page,
+      limit,
+      count,
+      "Risk Assessments (minimal) retrieved successfully"
+    ));
+    
+  } catch (error) {
+    console.error('Error retrieving risk assessments (minimal):', error);
     sendResponse(res, errorResponse(
       error.message || "Some error occurred while retrieving risk assessments.",
       500
@@ -358,6 +581,9 @@ exports.findOne = async (req, res) => {
     // Format for frontend response
     const formattedRiskAssessment = formatRiskAssessment(riskAssessment);
 
+    // Add approval information
+    formattedRiskAssessment.latestApproval = await getApprovalInfo(req.params.id);
+
     sendResponse(res, successResponse(
       "Risk Assessment retrieved successfully",
       formattedRiskAssessment
@@ -395,16 +621,12 @@ exports.update = async (req, res) => {
       return sendResponse(res, errorResponse("Submitting user not found", 403));
     }
 
-    // When a regular user makes changes to a risk assessment that required a supervisor signature, the assessment will be set back to pending
-    // as reapproval is required. Except when changing the status to completed.
-    const requiresSignature = req.body.risks.some(risk => risk.requiresSupervisorSignature);
-    let status = req.body.status;
-    if(requiresSignature && user.role === "user" && req.body.status !== "Completed"){
-      status = determineRiskAssessmentStatus(req.body.risks, status);
-    }
-
     // Find risk assessment with company validation (before starting transaction)
     const riskAssessment = await findRiskAssessmentByIdAndCompany(req.body.id, userCompanyId);
+    
+    // Get current active approval if exists using the new polymorphic system
+    const currentApproval = await supervisorApprovalController.getApprovalInfo(req.body.id, 'risk_assessments');
+    const currentApprovalRecord = currentApproval ? await db.supervisor_approvals.findByPk(currentApproval.id) : null;
 
     // Validate individuals and supervisor (before transaction for better error handling)
     let individuals, supervisor;
@@ -413,6 +635,20 @@ exports.update = async (req, res) => {
       supervisor = await findAndValidateSupervisor(req.body.supervisor);
     } catch (validationError) {
       return sendResponse(res, errorResponse(validationError.message, 404));
+    }
+
+    // Detect if any changes have been made that require re-approval
+    const individualIds = individuals.map(ind => ind.id);
+    const hasChanges = hasRiskAssessmentChanged(riskAssessment, req.body, individualIds, supervisor.id);
+    
+    // Determine status based on changes and requested status
+    let status;
+    if (hasChanges) {
+      // Changes detected - require approval (set to Pending)
+      status = 'Pending';
+    } else {
+      // No changes detected - use requested status
+      status = req.body.status || riskAssessment.status;
     }
 
     // Start transaction for data modifications
@@ -435,6 +671,29 @@ exports.update = async (req, res) => {
       let updatedRisks = [];
       if (req.body.risks && Array.isArray(req.body.risks)) {
         updatedRisks = await updateRiskAssessmentRisks(riskAssessment, req.body.risks, transaction);
+      }
+
+      // Handle approval logic using the new polymorphic system
+      // Only create/update approvals when changes have been detected
+      if (hasChanges && status === "Pending") {
+        if (currentApprovalRecord) {
+          // Handle re-approval (existing approval exists)
+          await supervisorApprovalController.handleReapproval(
+            riskAssessment.id,
+            'risk_assessments',
+            supervisor.id,
+            currentApprovalRecord,
+            transaction
+          );
+        } else {
+          // No existing approval - create new one
+          await supervisorApprovalController.createApproval(
+            riskAssessment.id,
+            'risk_assessments',
+            supervisor.id,
+            transaction
+          );
+        }
       }
 
       return { riskAssessment, risks: updatedRisks };
