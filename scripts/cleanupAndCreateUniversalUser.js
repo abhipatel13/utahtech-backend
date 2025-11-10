@@ -33,7 +33,7 @@ const cleanupAndCreateUniversalUser = async () => {
 
     const universalUserData = {
       email: 'admin@utahtechservicesllc.com',
-      password: 'UniversalAdmin2024!',
+      password: 'UniversalAdmin2025!',
       role: 'universal_user',
       name: 'Utah Tech Services Administrator',
       company_id: null, // Universal users don't belong to specific companies
@@ -77,14 +77,14 @@ const cleanupAndCreateUniversalUser = async () => {
 
     console.log('\n📋 Universal User Details:');
     console.log('   Email: admin@utahtechservicesllc.com');
-    console.log('   Password: UniversalAdmin2024!');
+    console.log('   Password: UniversalAdmin2025!');
     console.log('   Role: universal_user');
     console.log('   Name: Utah Tech Services Administrator');
     console.log('   Domain: utahtechservicesllc.com');
     console.log('');
     console.log('🔐 Login Credentials:');
     console.log('   Email: admin@utahtechservicesllc.com');
-    console.log('   Password: UniversalAdmin2024!');
+    console.log('   Password: UniversalAdmin2025!');
     console.log('');
     console.log('📋 Permissions:');
     console.log('   - Create Superuser accounts only');
