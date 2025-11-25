@@ -3,8 +3,10 @@ const User = models.user;
 const Company = models.company;
 const { Op } = require('sequelize');
 const bcrypt = require("bcryptjs");
+const crypto = require('crypto');
 const { successResponse, errorResponse, sendResponse } = require('../helper/responseHelper');
 const { isValidEmail, isValidRole } = require('../helper/validationHelper');
+const { sendMail } = require('../helper/mail.helper.js');
 
 // Universal User Management - Create users of any role across all companies
 module.exports.createUserAnyCompany = async (req, res) => {
@@ -69,6 +71,9 @@ module.exports.createUserAnyCompany = async (req, res) => {
     // Hash password
     const hashedPassword = await bcrypt.hash(password, 10);
 
+    // Generate email verification token
+    const verificationToken = crypto.randomBytes(32).toString('hex');
+
     // Create user data
     const userData = {
       email,
@@ -78,11 +83,33 @@ module.exports.createUserAnyCompany = async (req, res) => {
       name,
       department,
       business_unit,
-      plant
+      plant,
+      email_verified: false,
+      email_verification_token: verificationToken
     };
 
     // Create new user
     const newUser = await User.create(userData);
+
+    // Send verification email
+    // Use BACKEND_URL for production (https://18.188.112.65.nip.io) or localhost for local development
+    const backendUrl = process.env.BACKEND_URL || 'http://localhost:3000';
+    const verificationUrl = `${backendUrl}/api/auth/verify-email/${verificationToken}`
+    const subject = "Verify Your Email Address - UTS Tool";
+    const text = `Welcome to UTS Tool! Please verify your email address by clicking on the following link: ${verificationUrl}`;
+    const html = `
+      <div style="font-family: Arial, sans-serif; max-width: 600px; margin: 0 auto;">
+        <h2 style="color: #333;">Welcome to UTS Tool!</h2>
+        <p>Thank you for joining us. Please verify your email address to activate your account.</p>
+        <p>Click the button below to verify your email:</p>
+        <a href="${verificationUrl}" style="display: inline-block; padding: 12px 24px; background-color: #007bff; color: white; text-decoration: none; border-radius: 4px; margin: 20px 0;">Verify Email</a>
+        <p>Or copy and paste this link into your browser:</p>
+        <p style="color: #666; word-break: break-all;">${verificationUrl}</p>
+        <p style="color: #999; font-size: 12px; margin-top: 30px;">If you did not create this account, please ignore this email.</p>
+      </div>
+    `;
+
+    sendMail(email, subject, text, html);
 
     // Remove password from response
     const userResponse = {
@@ -94,10 +121,11 @@ module.exports.createUserAnyCompany = async (req, res) => {
       department: newUser.department,
       business_unit: newUser.business_unit,
       plant: newUser.plant,
+      email_verified: newUser.email_verified,
       createdAt: newUser.createdAt
     };
 
-    const response = successResponse('User created successfully by universal user', userResponse, 201);
+    const response = successResponse('User created successfully by universal user. Verification email sent.', userResponse, 201);
     return sendResponse(res, response);
 
   } catch (error) {
@@ -509,8 +537,9 @@ module.exports.deleteUserAnyCompany = async (req, res) => {
       return sendResponse(res, response);
     }
 
-    // Soft delete the user
-    await user.destroy();
+    // Hard delete the user (force: true bypasses paranoid soft delete)
+    // This permanently removes the user and frees up the email for re-use
+    await user.destroy({ force: true });
 
     const response = successResponse('User deleted successfully', null);
     return sendResponse(res, response);

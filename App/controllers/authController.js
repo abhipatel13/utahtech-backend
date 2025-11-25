@@ -44,6 +44,13 @@ module.exports.login = async (req, res) => {
 			return sendResponse(res, response);
 		}
 
+		// Check if email is verified - must be explicitly true to login
+
+		if (user.email_verified !== true) {
+			const response = errorResponse("Please verify your email address before logging in. Check your inbox for the verification email.", 403);
+			return sendResponse(res, response);
+		}
+
 		// Update last login
 		await user.updateLastLogin();
 
@@ -312,6 +319,222 @@ module.exports.findUserByEmailAndCompany = async (req, res) => {
 
 	} catch (error) {
 		console.error('Error in findUserByEmailAndCompany:', error);
+		const response = errorResponse('Internal server error', 500);
+		return sendResponse(res, response);
+	}
+};
+
+module.exports.verifyEmail = async (req, res) => {
+	// Helper function to render HTML response
+	const renderHtmlResponse = (success, title, message, subMessage = '') => {
+		const bgColor = success ? '#10b981' : '#ef4444';
+		const icon = success ? '✓' : '✕';
+		return `
+			<!DOCTYPE html>
+			<html lang="en">
+			<head>
+				<meta charset="UTF-8">
+				<meta name="viewport" content="width=device-width, initial-scale=1.0">
+				<title>${title} - UTS Tool</title>
+				<style>
+					* { margin: 0; padding: 0; box-sizing: border-box; }
+					body {
+						font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif;
+						min-height: 100vh;
+						display: flex;
+						align-items: center;
+						justify-content: center;
+						background: linear-gradient(135deg, #1e293b 0%, #0f172a 100%);
+						color: #fff;
+					}
+					.container {
+						text-align: center;
+						padding: 40px;
+						max-width: 500px;
+					}
+					.icon {
+						width: 80px;
+						height: 80px;
+						border-radius: 50%;
+						background: ${bgColor};
+						display: flex;
+						align-items: center;
+						justify-content: center;
+						margin: 0 auto 24px;
+						font-size: 40px;
+						color: white;
+					}
+					h1 {
+						font-size: 28px;
+						margin-bottom: 16px;
+						color: #f8fafc;
+					}
+					p {
+						font-size: 16px;
+						color: #94a3b8;
+						line-height: 1.6;
+						margin-bottom: 12px;
+					}
+					.sub-message {
+						font-size: 14px;
+						color: #64748b;
+					}
+					.btn {
+						display: inline-block;
+						margin-top: 24px;
+						padding: 12px 32px;
+						background: #3b82f6;
+						color: white;
+						text-decoration: none;
+						border-radius: 8px;
+						font-weight: 500;
+						transition: background 0.2s;
+					}
+					.btn:hover { background: #2563eb; }
+				</style>
+			</head>
+			<body>
+				<div class="container">
+					<div class="icon">${icon}</div>
+					<h1>${title}</h1>
+					<p>${message}</p>
+					${subMessage ? `<p class="sub-message">${subMessage}</p>` : ''}
+					<a href="${process.env.FRONTEND_URL || process.env.LIVE_URL || 'http://localhost:3001'}/auth/login" class="btn">Go to Login</a>
+				</div>
+			</body>
+			</html>
+		`;
+	};
+
+	try {
+		const { token } = req.params;
+
+		if (!token) {
+			return res.status(400).send(renderHtmlResponse(
+				false,
+				'Verification Failed',
+				'Verification token is required.',
+				'Please use the link from your email.'
+			));
+		}
+
+		// Find user by verification token
+		const user = await User.findOne({
+			where: {
+				email_verification_token: token,
+				deleted_at: null
+			}
+		});
+
+		if (!user) {
+			return res.status(400).send(renderHtmlResponse(
+				false,
+				'Invalid Token',
+				'This verification link is invalid or has expired.',
+				'Please request a new verification email.'
+			));
+		}
+
+		// Check if already verified
+		if (user.email_verified) {
+			return res.status(200).send(renderHtmlResponse(
+				true,
+				'Already Verified',
+				'Your email address has already been verified.',
+				'You can now log in to your account.'
+			));
+		}
+
+		// Verify the email
+		await user.update({
+			email_verified: true,
+			email_verification_token: null
+		});
+
+		return res.status(200).send(renderHtmlResponse(
+			true,
+			'Email Verified!',
+			'Your email address has been successfully verified.',
+			'You can now log in to your account.'
+		));
+
+	} catch (error) {
+		console.error('Email verification error:', error);
+		return res.status(500).send(renderHtmlResponse(
+			false,
+			'Something Went Wrong',
+			'An error occurred while verifying your email.',
+			'Please try again later or contact support.'
+		));
+	}
+};
+
+module.exports.resendVerificationEmail = async (req, res) => {
+	try {
+		const { email } = req.body;
+
+		if (!email) {
+			const response = errorResponse('Email is required', 400);
+			return sendResponse(res, response);
+		}
+
+		// Validate email format
+		if (!isValidEmail(email)) {
+			const response = errorResponse('Invalid email format', 400);
+			return sendResponse(res, response);
+		}
+
+		// Find user by email
+		const user = await User.findOne({
+			where: {
+				email: email,
+				deleted_at: null
+			}
+		});
+
+		if (!user) {
+			// Don't reveal if email exists or not for security
+			const response = successResponse('If the email exists, a verification email has been sent');
+			return sendResponse(res, response);
+		}
+
+		// Check if already verified
+		if (user.email_verified) {
+			const response = successResponse('Email is already verified');
+			return sendResponse(res, response);
+		}
+
+		// Generate new verification token
+		const verificationToken = crypto.randomBytes(32).toString('hex');
+		await user.update({
+			email_verification_token: verificationToken
+		});
+
+		// Send verification email
+		// Use BACKEND_URL for production (https://18.188.112.65.nip.io) or localhost for local development
+		const backendUrl = process.env.BACKEND_URL || 'http://localhost:3000';
+		const verificationUrl = `${backendUrl}/api/auth/verify-email/${verificationToken}`;
+		const subject = "Verify Your Email Address - UTS Tool";
+		const text = `Please verify your email address by clicking on the following link: ${verificationUrl}`;
+		const html = `
+			<div style="font-family: Arial, sans-serif; max-width: 600px; margin: 0 auto;">
+				<h2 style="color: #333;">Verify Your Email Address</h2>
+				<p>Please verify your email address to activate your account.</p>
+				<p>Click the button below to verify your email:</p>
+				<a href="${verificationUrl}" style="display: inline-block; padding: 12px 24px; background-color: #007bff; color: white; text-decoration: none; border-radius: 4px; margin: 20px 0;">Verify Email</a>
+				<p>Or copy and paste this link into your browser:</p>
+				<p style="color: #666; word-break: break-all;">${verificationUrl}</p>
+				<p style="color: #999; font-size: 12px; margin-top: 30px;">If you did not request this, please ignore this email.</p>
+			</div>
+		`;
+
+		sendMail(email, subject, text, html);
+
+		const response = successResponse('Verification email sent successfully');
+		return sendResponse(res, response);
+
+	} catch (error) {
+		console.error('Resend verification email error:', error);
 		const response = errorResponse('Internal server error', 500);
 		return sendResponse(res, response);
 	}

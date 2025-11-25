@@ -67,6 +67,15 @@ class Users extends Sequelize.Model {
         last_login: {
           type: DataTypes.DATE,
           defaultValue: new Date(0),
+        },
+        email_verified: {
+          type: DataTypes.BOOLEAN,
+          defaultValue: false,
+          allowNull: false
+        },
+        email_verification_token: {
+          type: DataTypes.STRING,
+          allowNull: true
         }
       },
       {
@@ -129,6 +138,7 @@ class Users extends Sequelize.Model {
       attributes: ["id", "email", "name", "role", "department", "phone_no"],
     });
     this.addScope('auth', {
+        attributes: { include: ['password', 'email_verified', 'email_verification_token'] },
         include: [{ model: models.company, as: 'company' }]
     });
   }

@@ -69,4 +69,16 @@ router.post('/find-user',
   authController.findUserByEmailAndCompany
 );
 
+// Verify email
+router.get('/verify-email/:token', authController.verifyEmail);
+
+// Resend verification email
+router.post('/resend-verification',
+  requireJsonBody(),
+  validateRequired(['email']),
+  validateEmail('email'),
+  sanitizeInputs(['email']),
+  authController.resendVerificationEmail
+);
+
 module.exports = router;
