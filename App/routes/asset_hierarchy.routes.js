@@ -26,19 +26,33 @@ router.delete("/universal/:id",
 
 router.use(ensureCompanyAccess('asset_hierarchy'));
 
-// Configure multer for file upload
+// Supported file types for asset upload
+const ALLOWED_MIMETYPES = [
+  'text/csv',
+  'application/csv',
+  'text/plain',
+  'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet', // .xlsx
+  'application/vnd.ms-excel' // .xls
+];
+
+const ALLOWED_EXTENSIONS = ['.csv', '.xlsx', '.xls'];
+
+// Configure multer for file upload (CSV and Excel)
 const upload = multer({
   storage: multer.memoryStorage(),
   fileFilter: (req, file, cb) => {
-    if (file.mimetype === 'text/csv' ||
-      file.originalname.toLowerCase().endsWith('.csv')) {
+    const extension = file.originalname.toLowerCase().slice(file.originalname.lastIndexOf('.'));
+    const isAllowedMime = ALLOWED_MIMETYPES.includes(file.mimetype);
+    const isAllowedExt = ALLOWED_EXTENSIONS.includes(extension);
+    
+    if (isAllowedMime || isAllowedExt) {
       cb(null, true);
     } else {
-      cb(new Error('Only CSV files are allowed!'));
+      cb(new Error('Only CSV (.csv) and Excel (.xlsx, .xls) files are allowed.'));
     }
   },
   limits: {
-    fileSize: 10 * 1024 * 1024 // 10MB
+    fileSize: 25 * 1024 * 1024 // 25MB to accommodate larger Excel files
   }
 });
 
@@ -68,7 +82,16 @@ router.post('/',
   assetHierarchyController.create
 );
 
-// Upload CSV file for bulk asset import
+// Upload file for bulk asset import (CSV or Excel)
+router.post('/upload',
+  requireRole(['admin', 'superuser']),
+  upload.single('file'),
+  handleUploadError,
+  assetHierarchyController.uploadAssets
+);
+
+// Legacy endpoint - redirects to new upload endpoint
+// @deprecated Use /upload instead
 router.post('/upload-csv',
   requireRole(['admin', 'superuser']),
   upload.single('file'),

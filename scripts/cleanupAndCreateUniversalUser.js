@@ -32,14 +32,15 @@ const cleanupAndCreateUniversalUser = async () => {
     console.log('\n🚀 Creating new Universal User...');
 
     const universalUserData = {
-      email: 'admin@utahtechservicesllc.com',
+      email: 'admin@utahtechnicalservicesllc.com',
       password: 'UniversalAdmin2025!',
       role: 'universal_user',
       name: 'Utah Tech Services Administrator',
       company_id: null, // Universal users don't belong to specific companies
       department: 'System Administration',
       business_unit: 'IT Operations',
-      plant: 'Central Office'
+      plant: 'Central Office',
+      email_verified: true // Skip email verification for admin user
     };
 
     // Check if this specific email already exists (shouldn't, but safety check)
