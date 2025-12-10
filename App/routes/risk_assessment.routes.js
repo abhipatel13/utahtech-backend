@@ -10,7 +10,9 @@ const {
   requireJsonBody,
   sanitizeInputs,
   validateDateTime,
-  validateArray
+  validateArray,
+  validatePagination,
+  validateSearch
 } = require('../middleware/validation');
 
 // Apply middleware to all routes
@@ -38,7 +40,18 @@ router.post("/",
 );
 
 // Retrieve all Risk Assessments
-router.get("/", risk_assessments.findAll);
+router.get("/", 
+  validatePagination(),
+  validateSearch(),
+  risk_assessments.findAll
+);
+
+// Retrieve Risk Assessments with minimal data (optimized for tables)
+router.get("/minimal", 
+  validatePagination(),
+  validateSearch(),
+  risk_assessments.findAllMinimal
+);
 
 // Retrieve a single Risk Assessment with id
 router.get("/:id", 

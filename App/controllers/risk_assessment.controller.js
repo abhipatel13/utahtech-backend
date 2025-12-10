@@ -1,8 +1,10 @@
 const db = require("../models");
 const RiskAssessment = db.risk_assessments;
 const RiskAssessmentRisk = db.risk_assessment_risks;
+const SupervisorApproval = db.supervisor_approvals;
 const User = db.user;
 const { successResponse, errorResponse, sendResponse, paginatedResponse } = require('../helper/responseHelper');
+const supervisorApprovalController = require('./supervisor_approval.controller');
 
 /**
  * Helper function to get user's company ID with validation
@@ -14,6 +16,7 @@ const getUserCompanyId = (req) => {
   }
   return userCompanyId;
 };
+
 
 /**
  * Helper function to convert likelihood and consequence strings to integers
@@ -115,12 +118,11 @@ const processRisks = (risks) => {
 };
 
 /**
- * Helper function to determine risk assessment status based on risks
+ * Helper function to get approval information for a risk assessment
+ * Uses the polymorphic supervisor approval system
  */
-const determineRiskAssessmentStatus = (risks, requestedStatus = 'Pending') => {
-  // If any risk requires supervisor signature, status must be 'Pending'
-  const requiresSignature = risks.some(risk => risk.requiresSupervisorSignature);
-  return requiresSignature ? 'Pending' : requestedStatus;
+const getApprovalInfo = async (riskAssessmentId) => {
+  return await supervisorApprovalController.getApprovalInfo(riskAssessmentId, 'risk_assessments');
 };
 
 /**
@@ -234,7 +236,7 @@ exports.create = async (req, res) => {
 
     // Process risks and determine status
     const processedRisks = processRisks(req.body.risks);
-    const status = determineRiskAssessmentStatus(processedRisks, req.body.status);
+    const status = "Pending";
 
     // Create Risk Assessment (using junction table for all individuals)
     const riskAssessment = await RiskAssessment.create({
@@ -256,6 +258,16 @@ exports.create = async (req, res) => {
       await riskAssessment.createRisk(risk, { transaction });
     }));
     
+    // Create supervisor approval for risk assessments (always require approval)
+    if (status === "Pending") {
+      await supervisorApprovalController.createApproval(
+        riskAssessment.id,
+        'risk_assessments',
+        supervisor.id,
+        transaction
+      );
+    }
+    
     // Commit transaction
     await transaction.commit();
 
@@ -272,6 +284,90 @@ exports.create = async (req, res) => {
     console.error('Error creating risk assessment:', error);
     sendResponse(res, errorResponse(
       error.message || "Some error occurred while creating the Risk Assessment.",
+      500
+    ));
+  }
+};
+
+/**
+ * Retrieve Risk Assessments with minimal data for table/list display
+ * Optimized for performance - excludes heavy associations like risks
+ */
+exports.findAllMinimal = async (req, res) => {
+  try {
+    // Validate user company access
+    const userCompanyId = getUserCompanyId(req);
+    
+    // Get pagination and search parameters
+    const { page, limit, offset, search } = req.query;
+
+    // Build where clause for search
+    let whereClause = { companyId: userCompanyId };
+    
+    // Apply simple search on scopeOfWork/location
+    if (search) {
+      const { Op } = require('sequelize');
+      whereClause[Op.or] = [
+        { scopeOfWork: { [Op.like]: `%${search}%` } },
+        { location: { [Op.like]: `%${search}%` } }
+      ];
+    }
+
+    // Fetch minimal data with limited associations
+    const { count, rows: riskAssessments } = await RiskAssessment.unscoped().findAndCountAll({
+      where: whereClause,
+      include: [
+        {
+          model: User,
+          as: 'supervisor',
+          attributes: ['email']
+        },
+        {
+          model: db.company,
+          as: 'company',
+          attributes: ['id', 'name']
+        }
+      ],
+      attributes: [
+        'id',
+        'date', 
+        'time',
+        'scopeOfWork',
+        'location',
+        'status',
+        'createdAt'
+      ],
+      limit,
+      offset,
+      order: [['createdAt', 'DESC']],
+      distinct: true
+    });
+
+    // Format minimal response
+    const formattedRiskAssessments = riskAssessments.map(ra => ({
+      id: ra.id,
+      date: ra.date,
+      time: ra.time,
+      scopeOfWork: ra.scopeOfWork,
+      location: ra.location,
+      status: ra.status,
+      supervisor: ra.supervisor?.email || '',
+      createdAt: ra.createdAt
+    }));
+
+    // Send paginated response
+    sendResponse(res, paginatedResponse(
+      formattedRiskAssessments,
+      page,
+      limit,
+      count,
+      "Risk Assessments (minimal) retrieved successfully"
+    ));
+    
+  } catch (error) {
+    console.error('Error retrieving risk assessments (minimal):', error);
+    sendResponse(res, errorResponse(
+      error.message || "Some error occurred while retrieving risk assessments.",
       500
     ));
   }
@@ -346,6 +442,7 @@ exports.findAllUniversal = async (req, res) => {
 /**
  * Find a single Risk Assessment by ID with company validation
  * Returns formatted data including all associated individuals from junction table
+ * Includes approval information from the polymorphic supervisor approval system
  */
 exports.findOne = async (req, res) => {
   try {
@@ -357,6 +454,9 @@ exports.findOne = async (req, res) => {
 
     // Format for frontend response
     const formattedRiskAssessment = formatRiskAssessment(riskAssessment);
+
+    // Add approval information from the polymorphic system
+    formattedRiskAssessment.latestApproval = await getApprovalInfo(req.params.id);
 
     sendResponse(res, successResponse(
       "Risk Assessment retrieved successfully",
@@ -380,6 +480,7 @@ exports.findOne = async (req, res) => {
 /**
  * Update a Risk Assessment by ID
  * Handles individuals through junction table and optimizes transaction usage
+ * Integrates with polymorphic supervisor approval system for re-approvals
  */
 exports.update = async (req, res) => {
   try {
@@ -400,11 +501,15 @@ exports.update = async (req, res) => {
     const requiresSignature = req.body.risks.some(risk => risk.requiresSupervisorSignature);
     let status = req.body.status;
     if(requiresSignature && user.role === "user" && req.body.status !== "Completed"){
-      status = determineRiskAssessmentStatus(req.body.risks, status);
+      status = "Pending";
     }
 
     // Find risk assessment with company validation (before starting transaction)
     const riskAssessment = await findRiskAssessmentByIdAndCompany(req.body.id, userCompanyId);
+
+    // Get current active approval if exists using the polymorphic system
+    const currentApprovalInfo = await getApprovalInfo(req.body.id);
+    const currentApproval = currentApprovalInfo ? await SupervisorApproval.findByPk(currentApprovalInfo.id) : null;
 
     // Validate individuals and supervisor (before transaction for better error handling)
     let individuals, supervisor;
@@ -435,6 +540,29 @@ exports.update = async (req, res) => {
       let updatedRisks = [];
       if (req.body.risks && Array.isArray(req.body.risks)) {
         updatedRisks = await updateRiskAssessmentRisks(riskAssessment, req.body.risks, transaction);
+      }
+
+      // Handle approval logic using the polymorphic system
+      // Create/update approvals when status is Pending and requires signature
+      if (requiresSignature && status === "Pending") {
+        if (currentApproval) {
+          // Handle re-approval (existing approval exists)
+          await supervisorApprovalController.handleReapproval(
+            riskAssessment.id,
+            'risk_assessments',
+            supervisor.id,
+            currentApproval,
+            transaction
+          );
+        } else {
+          // No existing approval - create new one
+          await supervisorApprovalController.createApproval(
+            riskAssessment.id,
+            'risk_assessments',
+            supervisor.id,
+            transaction
+          );
+        }
       }
 
       return { riskAssessment, risks: updatedRisks };

@@ -115,9 +115,10 @@ exports.sanitizeInput = (input) => {
  * @param {object} query - Query parameters
  * @returns {object} Validated pagination parameters
  */
+// Lower limit after updating mobile app
 exports.validatePagination = (query) => {
   const page = Math.max(1, parseInt(query.page) || 1);
-  const limit = Math.min(100, Math.max(1, parseInt(query.limit) || 10));
+  const limit = Math.min(1000, Math.max(1, parseInt(query.limit) || 1000));
   const offset = (page - 1) * limit;
   
   return { page, limit, offset };

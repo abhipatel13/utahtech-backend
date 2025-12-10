@@ -124,31 +124,21 @@ const determineTaskHazardStatus = (risks, requestedStatus = 'Pending') => {
 /**
  * Helper function to get approval information for a task hazard
  * Only fetches when needed to avoid unnecessary queries
+ * Uses polymorphic fields internally but returns backwards compatible response
  */
 const getApprovalInfo = async (taskHazardId) => {
   try {
-    // Get current active approval (not invalidated)
+    // Get current active approval (not invalidated) using polymorphic fields
     const currentApproval = await SupervisorApproval.findOne({
       where: {
-        taskHazardId,
+        approvableId: taskHazardId,
+        approvableType: 'task_hazards',
         isInvalidated: false
       },
       include: [
         { model: User, as: 'supervisor', attributes: ['id', 'email', 'name', 'role'] }
       ],
       order: [['createdAt', 'DESC']]
-    });
-
-    // Get latest approved approval
-    const latestApproval = await SupervisorApproval.findOne({
-      where: {
-        taskHazardId,
-        isInvalidated: false
-      },
-      include: [
-        { model: User, as: 'supervisor', attributes: ['id', 'email', 'name', 'role'] }
-      ],
-      order: [['processedAt', 'DESC']]
     });
 
     if(currentApproval){
@@ -161,7 +151,10 @@ const getApprovalInfo = async (taskHazardId) => {
         isInvalidated: false,
         isLatest: true,
         supervisor: currentApproval?.supervisor,
-        taskHazardData: currentApproval?.taskHazardSnapshot,
+        // Backwards compatible field name
+        taskHazardData: currentApproval?.approvableSnapshot,
+        // Also include new field name for forward compatibility
+        approvableData: currentApproval?.approvableSnapshot,
       }
     }
     return null;
@@ -175,6 +168,7 @@ const getApprovalInfo = async (taskHazardId) => {
  * Helper function to format task hazard for frontend response
  * Converts junction table associations to comma-separated email string
  */
+// TODO: Remove individual field after updating mobile app
 const formatTaskHazard = (taskHazard) => {
   const formatted = {
     ...taskHazard.get({ plain: true }),
@@ -184,8 +178,10 @@ const formatTaskHazard = (taskHazard) => {
   // Get all individuals from the many-to-many association via junction table
   if (taskHazard.individuals && taskHazard.individuals.length > 0) {
     formatted.individual = taskHazard.individuals.map(user => user.email).join(', ');
+    formatted.individuals = taskHazard.individuals.map(user => user.email).join(', ');
   } else {
     formatted.individual = ''; // No individuals assigned
+    formatted.individuals = ''; // No individuals assigned
   }
   
   // Add basic approval flag
@@ -275,10 +271,16 @@ exports.create = async (req, res) => {
     // Validate user company access
     const userCompanyId = getCompanyId(req);
 
+    //TODO: Remove individual after updating the mobile app
+    let individualsString = req.body.individuals ? req.body.individuals : req.body.individual;
+    if (!individualsString) {
+      return sendResponse(res, errorResponse("individuals or individual is required", 400));
+    }
+
     // Parse and validate individuals (database lookup)
     let individuals, supervisor;
     try {
-      individuals = await parseAndValidateIndividuals(req.body.individual, transaction);
+      individuals = await parseAndValidateIndividuals(individualsString, transaction);
       supervisor = await findAndValidateSupervisor(req.body.supervisor, transaction);
     } catch (validationError) {
       await transaction.rollback();
@@ -312,6 +314,7 @@ exports.create = async (req, res) => {
       await taskHazard.createRisk(risk, { transaction });
     }));
     
+    // TODO: Update this to use the new supervisor approval controller after updating the mobile app
     const requiresSignature = req.body.risks.some(risk => risk.requiresSupervisorSignature);
     if(requiresSignature && status === "Pending"){
       // Reload task hazard with all associations for snapshot
@@ -323,16 +326,18 @@ exports.create = async (req, res) => {
         transaction
       });
 
-      // Create supervisor approval record with snapshot
-      const { taskHazardSnapshot, risksSnapshot } = SupervisorApproval.createSnapshot(
-        taskHazardWithAssociations
+      // Create supervisor approval record with snapshot using polymorphic fields
+      const { approvableSnapshot, risksSnapshot } = SupervisorApproval.createSnapshot(
+        taskHazardWithAssociations,
+        'task_hazards'
       );
 
       const supervisorApproval = await SupervisorApproval.create({
-        taskHazardId: taskHazard.id,
+        approvableId: taskHazard.id,
+        approvableType: 'task_hazards',
         supervisorId: supervisor.id,
         status: 'pending',
-        taskHazardSnapshot,
+        approvableSnapshot,
         risksSnapshot
       }, { transaction });
 
@@ -370,6 +375,9 @@ exports.create = async (req, res) => {
  * Retrieve supervisor approvals for the authenticated user's company
  * - Admin/superuser: Can see all approvals for the company
  * - Supervisor: Can only see approvals they are responsible for
+ * 
+ * BACKWARDS COMPATIBLE: Returns same response format as before migration
+ * Uses polymorphic fields internally but returns taskHazards array with taskHazardData
  */
 exports.getAllApprovals = async (req, res) => {
   try {
@@ -390,7 +398,10 @@ exports.getAllApprovals = async (req, res) => {
     // Parse query parameters for filtering
     // Optional status filter
     const statusFilter = req.query.status;
-    const whereClause = {};
+    const whereClause = {
+      // Filter to only task_hazards type for this endpoint (backwards compat)
+      approvableType: 'task_hazards'
+    };
     
     if (statusFilter && ['pending', 'approved', 'rejected'].includes(statusFilter)) {
       whereClause.status = statusFilter;
@@ -407,11 +418,12 @@ exports.getAllApprovals = async (req, res) => {
     }
 
     // Get approvals for the company's task hazards (filtered by role)
+    // Using polymorphic association alias 'task_hazards'
     const approvals = await SupervisorApproval.findAll({
       include: [
         {
           model: TaskHazard,
-          as: 'taskHazard',
+          as: 'task_hazards',
           where: { companyId: userCompanyId },
           attributes: ['id', 'date', 'time', 'scopeOfWork', 'location', 'status'],
           include: [
@@ -441,15 +453,17 @@ exports.getAllApprovals = async (req, res) => {
     });
     console.log("approvals:", approvals.length);
 
-    // Group approvals by task hazard
+    // Group approvals by task hazard (using approvableId from polymorphic field)
     const taskHazardMap = new Map();
     
     approvals.forEach(approval => {
-      const taskHazardId = approval.taskHazard.id;
+      // Use approvable (set by afterFind hook) or fall back to approvableId
+      const taskHazard = approval.approvable;
+      const taskHazardId = approval.approvableId;
       
       if (!taskHazardMap.has(taskHazardId)) {
         taskHazardMap.set(taskHazardId, {
-          taskHazard: approval.taskHazard,
+          taskHazard: taskHazard,
           approvals: []
         });
       }
@@ -471,19 +485,20 @@ exports.getAllApprovals = async (req, res) => {
         const isLatest = index === 0;
         
         // For latest approval, use live data; for others, use snapshot
-        const taskHazardData = isLatest ? {
+        // Using approvableSnapshot internally but returning as taskHazardData for backwards compat
+        const taskHazardData = isLatest && taskHazard ? {
           id: taskHazard.id,
           date: taskHazard.date,
           time: taskHazard.time,
           scopeOfWork: taskHazard.scopeOfWork,
           location: taskHazard.location,
           status: taskHazard.status,
-          individuals: taskHazard.individuals.map(ind => ({
+          individuals: taskHazard.individuals ? taskHazard.individuals.map(ind => ({
             id: ind.id,
             email: ind.email,
             name: ind.name
-          })),
-          risks: taskHazard.risks.map(risk => ({
+          })) : [],
+          risks: taskHazard.risks ? taskHazard.risks.map(risk => ({
             id: risk.id,
             riskDescription: risk.riskDescription,
             riskType: risk.riskType,
@@ -494,12 +509,17 @@ exports.getAllApprovals = async (req, res) => {
             mitigatedLikelihood: risk.mitigatedLikelihood,
             mitigatedConsequence: risk.mitigatedConsequence,
             requiresSupervisorSignature: risk.requiresSupervisorSignature
-          }))
+          })) : []
         } : {
-          // Use snapshot data for historical approvals
-          ...approval.taskHazardSnapshot,
+          // Use snapshot data for historical approvals (approvableSnapshot for polymorphic)
+          ...approval.approvableSnapshot,
           risks: approval.risksSnapshot
         };
+
+        console.log("supervisor id:", approval.supervisor?.id);
+        console.log("supervisor email:", approval.supervisor?.email);
+        console.log("supervisor name:", approval.supervisor?.name);
+        console.log("supervisor role:", approval.supervisor?.role);
         
         return {
           id: approval.id,
@@ -515,23 +535,24 @@ exports.getAllApprovals = async (req, res) => {
             name: approval.supervisor.name,
             role: approval.supervisor.role
           },
+          // Backwards compatible field name
           taskHazardData: taskHazardData
         };
       });
       
       return {
-        id: taskHazard.id,
-        date: taskHazard.date,
-        time: taskHazard.time,
-        scopeOfWork: taskHazard.scopeOfWork,
-        location: taskHazard.location,
-        status: taskHazard.status,
-        individuals: taskHazard.individuals.map(ind => ({
+        id: taskHazard ? taskHazard.id : latestApproval.approvableId,
+        date: taskHazard ? taskHazard.date : latestApproval.approvableSnapshot?.date,
+        time: taskHazard ? taskHazard.time : latestApproval.approvableSnapshot?.time,
+        scopeOfWork: taskHazard ? taskHazard.scopeOfWork : latestApproval.approvableSnapshot?.scopeOfWork,
+        location: taskHazard ? taskHazard.location : latestApproval.approvableSnapshot?.location,
+        status: taskHazard ? taskHazard.status : latestApproval.approvableSnapshot?.status,
+        individuals: taskHazard && taskHazard.individuals ? taskHazard.individuals.map(ind => ({
           id: ind.id,
           email: ind.email,
           name: ind.name
-        })),
-        risks: taskHazard.risks.map(risk => ({
+        })) : (latestApproval.approvableSnapshot?.individuals || []),
+        risks: taskHazard && taskHazard.risks ? taskHazard.risks.map(risk => ({
           id: risk.id,
           riskDescription: risk.riskDescription,
           riskType: risk.riskType,
@@ -542,7 +563,7 @@ exports.getAllApprovals = async (req, res) => {
           mitigatedLikelihood: risk.mitigatedLikelihood,
           mitigatedConsequence: risk.mitigatedConsequence,
           requiresSupervisorSignature: risk.requiresSupervisorSignature
-        })),
+        })) : (latestApproval.risksSnapshot || []),
         approvals: processedApprovals
       };
     });
@@ -550,6 +571,7 @@ exports.getAllApprovals = async (req, res) => {
     // Sort task hazards by most recent date
     groupedTaskHazards.sort((a, b) => new Date(b.date) - new Date(a.date));
 
+    // Response maintains backwards compatible structure
     sendResponse(res, successResponse(
       "Supervisor approvals retrieved successfully",
       {
@@ -649,6 +671,94 @@ exports.findAll = async (req, res) => {
     
   } catch (error) {
     console.error('Error retrieving task hazards:', error);
+    sendResponse(res, errorResponse(
+      error.message || "Some error occurred while retrieving task hazards.",
+      500
+    ));
+  }
+};
+
+/**
+ * Retrieve Task Hazards with minimal data for table/list display
+ * Optimized for performance - excludes heavy associations like risks
+ */
+exports.findAllMinimal = async (req, res) => {
+  try {
+    // Build effective where clause
+    let effectiveWhere = {};
+
+    if (req.whereClause && typeof req.whereClause === 'object') {
+      const wc = req.whereClause;
+      if (wc.companyId || wc.company_id) effectiveWhere.companyId = wc.companyId ?? wc.company_id;
+    }
+
+    // If nothing provided by middleware, derive from helpers (non-universal users)
+    if ((!effectiveWhere.companyId ) && req.user?.role !== 'universal_user') {
+      const userCompanyId = getCompanyId(req);
+      if (userCompanyId) effectiveWhere.companyId = userCompanyId;
+    }
+
+    // Get pagination and search
+    const { page, limit, offset, search } = req.query;
+
+    // Apply simple search on scopeOfWork/location
+    if (search) {
+      effectiveWhere[Op.or] = [
+        { scopeOfWork: { [Op.like]: `%${search}%` } },
+        { location: { [Op.like]: `%${search}%` } }
+      ];
+    }
+
+    // Fetch minimal data with limited associations
+    const { count, rows: taskHazards } = await TaskHazard.unscoped().findAndCountAll({
+      where: effectiveWhere,
+      include: [
+        { model: db.company, 
+          as: 'company', 
+          attributes: ['id', 'name'] },
+        { model: db.task_risks, as: 'risks'},
+        { model: db.user, as: 'supervisor', attributes: ["email"] }
+      ],
+      attributes: [
+        'id', 
+        'date', 
+        'time', 
+        'scopeOfWork', 
+        ['asset_hierarchy_id', 'assetSystem'], 
+        'location', 
+        'status', 
+        'createdAt'
+      ],
+      limit,
+      offset,
+      order: [['createdAt', 'DESC']],
+      distinct: true
+    });
+
+    // Format minimal response
+    const formattedTaskHazards = taskHazards.map(taskHazard => ({
+      id: taskHazard.id,
+      date: taskHazard.date,
+      time: taskHazard.time,
+      scopeOfWork: taskHazard.scopeOfWork,
+      assetSystem: taskHazard.assetSystem,
+      location: taskHazard.location,
+      status: taskHazard.status,
+      supervisor: taskHazard.supervisor?.email || '',
+      createdAt: taskHazard.createdAt
+    }));
+
+    // Send paginated response using helper
+    sendResponse(res, paginatedResponse(
+      formattedTaskHazards,
+      page,
+      limit,
+      count,
+      "Task Hazards (minimal) retrieved successfully"
+    ));
+    
+  } catch (error) {
+    console.error('Error retrieving task hazards (minimal):', error);
     sendResponse(res, errorResponse(
       error.message || "Some error occurred while retrieving task hazards.",
       500
@@ -796,10 +906,11 @@ exports.update = async (req, res) => {
       return sendResponse(res, errorResponse("Task Hazard not found", 404));
     }
 
-    // Get current active approval if exists
+    // Get current active approval if exists (using polymorphic fields)
     const currentApproval = await SupervisorApproval.findOne({
       where: {
-        taskHazardId: req.body.id
+        approvableId: req.body.id,
+        approvableType: 'task_hazards'
       },
       order: [['createdAt', 'DESC']]
     });
@@ -815,10 +926,17 @@ exports.update = async (req, res) => {
       status = 'Pending';
     }
 
+    
+    //TODO: Remove individual after updating the mobile app
+    let individualsString = req.body.individuals ? req.body.individuals : req.body.individual;
+    if (!individualsString) {
+      return sendResponse(res, errorResponse("individuals or individual is required", 400));
+    }
+
     // Validate individuals and supervisor (before transaction for better error handling)
     let individuals, supervisor;
     try {
-      individuals = await parseAndValidateIndividuals(req.body.individual);
+      individuals = await parseAndValidateIndividuals(individualsString);
       supervisor = await findAndValidateSupervisor(req.body.supervisor);
     } catch (validationError) {
       return sendResponse(res, errorResponse(validationError.message, 404));
@@ -860,9 +978,10 @@ exports.update = async (req, res) => {
           transaction
         });
 
-        // Create snapshot for the approval
-        const { taskHazardSnapshot, risksSnapshot } = SupervisorApproval.createSnapshot(
-          taskHazardWithAssociations
+        // Create snapshot for the approval using polymorphic method
+        const { approvableSnapshot, risksSnapshot } = SupervisorApproval.createSnapshot(
+          taskHazardWithAssociations,
+          'task_hazards'
         );
 
         // Handle existing approval
@@ -870,12 +989,13 @@ exports.update = async (req, res) => {
           // Invalidate the existing approval
           await currentApproval.invalidate(null, transaction);
 
-          // Create new approval record
+          // Create new approval record using polymorphic fields
           const newApproval = await SupervisorApproval.create({
-            taskHazardId: taskHazard.id,
+            approvableId: taskHazard.id,
+            approvableType: 'task_hazards',
             supervisorId: supervisor.id,
             status: 'pending',
-            taskHazardSnapshot,
+            approvableSnapshot,
             risksSnapshot
           }, { transaction });
 
@@ -909,12 +1029,13 @@ exports.update = async (req, res) => {
 
           sendMail(supervisor.email, title, message, html);
         } else {
-          // No existing approval - create new one
+          // No existing approval - create new one using polymorphic fields
           await SupervisorApproval.create({
-            taskHazardId: taskHazard.id,
+            approvableId: taskHazard.id,
+            approvableType: 'task_hazards',
             supervisorId: supervisor.id,
             status: 'pending',
-            taskHazardSnapshot,
+            approvableSnapshot,
             risksSnapshot
           }, { transaction });
 
@@ -994,10 +1115,11 @@ exports.supervisorApproval = async (req, res) => {
       return sendResponse(res, errorResponse("Task hazard is not pending approval.", 400));
     }
 
-    // Find the current pending approval
+    // Find the current pending approval using polymorphic fields
     const pendingApproval = await SupervisorApproval.findOne({
       where: {
-        taskHazardId: req.body.id,
+        approvableId: req.body.id,
+        approvableType: 'task_hazards',
         status: 'pending',
         isInvalidated: false
       }
@@ -1092,6 +1214,8 @@ exports.supervisorApproval = async (req, res) => {
 /**
  * Get approval history for a specific task hazard
  * Returns all approval records including invalidated ones for audit trail
+ * 
+ * BACKWARDS COMPATIBLE: Returns taskHazardSnapshot field for mobile compatibility
  */
 exports.getApprovalHistory = async (req, res) => {
   try {
@@ -1102,8 +1226,12 @@ exports.getApprovalHistory = async (req, res) => {
     const taskHazard = await findTaskHazardByIdAndCompany(req.params.id, userCompanyId, false);
 
     // Get all approval records for this task hazard (including invalidated ones)
+    // Using polymorphic fields
     const approvalHistory = await SupervisorApproval.findAll({
-      where: { taskHazardId: req.params.id },
+      where: { 
+        approvableId: req.params.id,
+        approvableType: 'task_hazards'
+      },
       include: [
         { 
           model: User, 
@@ -1120,7 +1248,7 @@ exports.getApprovalHistory = async (req, res) => {
       order: [['createdAt', 'DESC']]
     });
 
-    // Format approval history for response
+    // Format approval history for response with backwards compatible field names
     const formattedHistory = approvalHistory.map(approval => ({
       id: approval.id,
       status: approval.status,
@@ -1134,7 +1262,10 @@ exports.getApprovalHistory = async (req, res) => {
         name: approval.supervisor.name,
         role: approval.supervisor.role
       },
-      taskHazardSnapshot: approval.taskHazardSnapshot,
+      // Backwards compatible field name (uses approvableSnapshot internally)
+      taskHazardSnapshot: approval.approvableSnapshot,
+      // Also include new field name for forward compatibility
+      approvableSnapshot: approval.approvableSnapshot,
       risksSnapshot: approval.risksSnapshot,
       replacedBy: approval.replacedByApproval ? {
         id: approval.replacedByApproval.id,

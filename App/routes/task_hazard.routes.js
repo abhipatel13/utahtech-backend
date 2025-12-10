@@ -33,16 +33,18 @@ router.delete("/universal/:id",
 router.use(ensureCompanyAccess('task_hazards'));
 
 // Create a new Task Hazard
+// TODO: Re-add individuals field
 router.post("/", 
   requireJsonBody(),
-  validateRequired(['date', 'time', 'scopeOfWork', 'individual', 'supervisor', 'location']),
+  validateRequired(['date', 'time', 'scopeOfWork', 'supervisor', 'location']),
   validateDateTime(),
   validateArray('risks', true),
-  sanitizeInputs(['scopeOfWork', 'individual', 'supervisor', 'location']),
+  sanitizeInputs(['scopeOfWork', 'supervisor', 'location']),
   task_hazards.create
 );
 
 // Get supervisor approvals grouped by task (admin/superuser: all company approvals, supervisor: own approvals only)
+// Used for backward compatibility with mobile app
 router.get("/approvals", 
   requireRole(['admin', 'superuser', 'supervisor']),
   task_hazards.getAllApprovals
@@ -71,6 +73,13 @@ router.get("/",
   task_hazards.findAll
 );
 
+// Retrieve Task Hazards with minimal data (optimized for tables)
+router.get("/minimal", 
+  validatePagination(),
+  validateSearch(),
+  task_hazards.findAllMinimal
+);
+
 // Get task hazards by company (for universal users only)
 router.get("/company/:company_id",
   requireRole(['universal_user']),
@@ -85,11 +94,12 @@ router.get("/:id",
 );
 
 // Update a Task Hazard with id
+// TODO: Re-add individuals field
 router.put("/:id", 
   validateIdParam('id'),
   requireJsonBody(),
   validateDateTime(),
-  sanitizeInputs(['scopeOfWork', 'individual', 'supervisor', 'location', 'trainedWorkforce']),
+  sanitizeInputs(['scopeOfWork', 'supervisor', 'location', 'trainedWorkforce']),
   task_hazards.update
 );
 

@@ -11,6 +11,7 @@ const riskAssessmentRoutes = require('./risk_assessment.routes');
 const notificationRoutes = require('./notification.routes');
 const licenseRoutes = require('./license.routes');
 const universalUserRoutes = require('./universalUser');
+const supervisorApprovalRoutes = require('./supervisor_approval.routes');
 
 router.use('/auth', authRoutes);
 router.use('/admin', adminRoutes);
@@ -23,5 +24,6 @@ router.use('/risk-assessments', riskAssessmentRoutes);
 router.use('/notifications', notificationRoutes);
 router.use('/licenses', licenseRoutes);
 router.use('/universal', universalUserRoutes);
+router.use('/supervisor-approvals', supervisorApprovalRoutes);
 
 module.exports = router;
