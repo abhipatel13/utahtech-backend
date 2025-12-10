@@ -146,6 +146,24 @@ class LicensePool extends Sequelize.Model {
       foreignKey: 'licensePoolId', 
       as: 'allocations' 
     });
+    
+    // Add hooks for cascading soft delete
+    this.addHook('beforeDestroy', async (licensePool, options) => {
+      const { transaction } = options;
+      
+      try {
+        // Soft delete associated license allocations
+        await models.license_allocations.destroy({
+          where: { licensePoolId: licensePool.id },
+          transaction
+        });
+
+        console.log(`Cascading soft delete completed for license pool: ${licensePool.id}`);
+      } catch (error) {
+        console.error(`Error in beforeDestroy hook for license pool ${licensePool.id}:`, error);
+        throw error;
+      }
+    });
   }
 
   // Instance methods
