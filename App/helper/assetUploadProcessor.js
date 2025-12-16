@@ -118,6 +118,53 @@ const hasChanges = (newAsset, existingAsset) => {
 };
 
 /**
+ * Sort assets so parents come before children (stable topological sort)
+ * Preserves original order as much as possible - only moves assets when
+ * necessary to satisfy parent dependencies
+ * @param {Array<Object>} assets - Array of asset objects with id and parent fields
+ * @returns {Array<Object>} Sorted array with parents before children
+ */
+const sortByDependencyOrder = (assets) => {
+  if (assets.length === 0) return assets;
+
+  // Build lookup maps
+  const assetById = new Map();
+  for (const asset of assets) {
+    assetById.set(asset.id, asset);
+  }
+
+  const sorted = [];
+  const added = new Set();
+
+  /**
+   * Recursively add an asset and its ancestors (parents first)
+   * @param {Object} asset - Asset to add
+   */
+  const addWithAncestors = (asset) => {
+    if (added.has(asset.id)) return;
+
+    // If this asset has a parent in the upload, add parent first
+    if (asset.parent && assetById.has(asset.parent) && !added.has(asset.parent)) {
+      addWithAncestors(assetById.get(asset.parent));
+    }
+
+    // Now add this asset
+    if (!added.has(asset.id)) {
+      added.add(asset.id);
+      sorted.push(asset);
+    }
+  };
+
+  // Process assets in original order
+  // This ensures we maintain original order except when dependencies require changes
+  for (const asset of assets) {
+    addWithAncestors(asset);
+  }
+
+  return sorted;
+};
+
+/**
  * Separate assets into new, changed, and unchanged categories
  * @param {Array<Object>} assetData - Validated asset data objects
  * @param {Map<string, Object>} existingAssetMap - Map of existing assets by ID
@@ -158,8 +205,11 @@ const categorizeAssets = (assetData, existingAssetMap) => {
 const bulkInsertAssets = async (newAssets, companyId, transaction) => {
   if (newAssets.length === 0) return 0;
   
+  // Sort assets so parents are inserted before children (required for FK constraint)
+  const sortedAssets = sortByDependencyOrder(newAssets);
+  
   // Add companyId, level, and clear deleted_at to each asset
-  const assetsToCreate = newAssets.map(asset => ({
+  const assetsToCreate = sortedAssets.map(asset => ({
     ...asset,
     companyId,
     level: 0, // Will be recalculated after all inserts
@@ -200,12 +250,15 @@ const bulkInsertAssets = async (newAssets, companyId, transaction) => {
 const bulkUpdateAssets = async (existingAssets, transaction) => {
   if (existingAssets.length === 0) return 0;
   
+  // Sort assets so parents are updated/restored before children (required for FK constraint)
+  const sortedAssets = sortByDependencyOrder(existingAssets);
+  
   // Process updates in chunks
   const CHUNK_SIZE = 100;
   let totalUpdated = 0;
   
-  for (let i = 0; i < existingAssets.length; i += CHUNK_SIZE) {
-    const chunk = existingAssets.slice(i, i + CHUNK_SIZE);
+  for (let i = 0; i < sortedAssets.length; i += CHUNK_SIZE) {
+    const chunk = sortedAssets.slice(i, i + CHUNK_SIZE);
     
     // Use Promise.all for parallel updates within chunk
     await Promise.all(chunk.map(asset => 
@@ -419,6 +472,7 @@ const updateUploadStatus = async (fileUpload, status, details = {}) => {
 
 module.exports = {
   fetchExistingAssets,
+  sortByDependencyOrder,
   categorizeAssets,
   bulkInsertAssets,
   bulkUpdateAssets,

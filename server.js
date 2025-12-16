@@ -31,8 +31,8 @@ app.set("port", port);
 const server = http.createServer(app);
 const db = require("./App/models");
 
-// Sync database without dropping tables
-db.sequelize.sync().then(function () {
+// Sync database without dropping tables (in dependency order)
+db.syncInOrder().then(function () {
   console.log("Database synced.");
 
   /**
@@ -41,6 +41,9 @@ db.sequelize.sync().then(function () {
     server.listen(port, () => {
       console.log(`HTTP Server running on port ${port}`);
     });
+}).catch(function (err) {
+  console.error("Failed to sync database:", err);
+  process.exit(1);
 });
 
 /**

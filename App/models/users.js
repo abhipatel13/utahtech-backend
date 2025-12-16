@@ -19,10 +19,6 @@ class Users extends Sequelize.Model {
           allowNull: false,
           validate: {
             isEmail:true
-          },
-          unique: {
-            args: true,
-            msg: 'Email address already in use!'
           }
         },
         phone_no: {
@@ -84,7 +80,20 @@ class Users extends Sequelize.Model {
         tableName: 'users',
         timestamps: true,
         underscored: true,
-        paranoid: true
+        paranoid: true,
+        indexes: [
+          {
+            fields: ['email']
+          },
+          {
+            fields: ['company_id']
+          },
+          {
+            fields: ['email','deleted_at'],
+            unique: true,
+            name: 'unique_active_email'
+          }
+        ]
       }
     );
   };
