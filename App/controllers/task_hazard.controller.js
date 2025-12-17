@@ -2,12 +2,12 @@ const db = require("../models");
 const TaskHazard = db.task_hazards;
 const TaskRisk = db.task_risks;
 const User = db.user;
-const Notification = db.notifications;
 const SupervisorApproval = db.supervisor_approvals;
 const { successResponse, errorResponse, sendResponse, paginatedResponse } = require('../helper/responseHelper');
 const { getCompanyId } = require('../helper/controllerHelper');
 const { Op } = require('sequelize');
-const { sendMail } = require('../helper/mail.helper');
+const supervisorApprovalController = require('./supervisor_approval.controller');
+const { createNotificationWithEmail } = require('./notificationController');
 
 /**
  * Helper function to convert likelihood and consequence strings to integers
@@ -314,40 +314,15 @@ exports.create = async (req, res) => {
       await taskHazard.createRisk(risk, { transaction });
     }));
     
-    // TODO: Update this to use the new supervisor approval controller after updating the mobile app
+    // Create supervisor approval if any risks require supervisor signature
     const requiresSignature = req.body.risks.some(risk => risk.requiresSupervisorSignature);
     if(requiresSignature && status === "Pending"){
-      // Reload task hazard with all associations for snapshot
-      const taskHazardWithAssociations = await TaskHazard.findByPk(taskHazard.id, {
-        include: [
-          { model: User, as: 'supervisor' },
-          { model: User, as: 'individuals' }
-        ],
+      await supervisorApprovalController.createApproval(
+        taskHazard.id,
+        'task_hazards',
+        supervisor.id,
         transaction
-      });
-
-      // Create supervisor approval record with snapshot using polymorphic fields
-      const { approvableSnapshot, risksSnapshot } = SupervisorApproval.createSnapshot(
-        taskHazardWithAssociations,
-        'task_hazards'
       );
-
-      const supervisorApproval = await SupervisorApproval.create({
-        approvableId: taskHazard.id,
-        approvableType: 'task_hazards',
-        supervisorId: supervisor.id,
-        status: 'pending',
-        approvableSnapshot,
-        risksSnapshot
-      }, { transaction });
-
-      // Create notification for supervisor
-      await Notification.create({
-        userId: supervisor.id,
-        title: "Task Hazard Pending Approval",
-        message: "A task hazard requires your approval. Please review the risks and take appropriate actions.",
-        type: "approval"
-      }, { transaction });
     }
     
     // Commit transaction
@@ -969,103 +944,23 @@ exports.update = async (req, res) => {
 
       // Handle approval logic - if status is Pending and requires signature, create approval record
       if (requiresSignature && status === "Pending") {
-        // Reload task hazard with associations for snapshot
-        const taskHazardWithAssociations = await TaskHazard.findByPk(taskHazard.id, {
-          include: [
-            { model: User, as: 'supervisor' },
-            { model: User, as: 'individuals' }
-          ],
-          transaction
-        });
-
-        // Create snapshot for the approval using polymorphic method
-        const { approvableSnapshot, risksSnapshot } = SupervisorApproval.createSnapshot(
-          taskHazardWithAssociations,
-          'task_hazards'
-        );
-
-        // Handle existing approval
         if (currentApproval) {
-          // Invalidate the existing approval
-          await currentApproval.invalidate(null, transaction);
-
-          // Create new approval record using polymorphic fields
-          const newApproval = await SupervisorApproval.create({
-            approvableId: taskHazard.id,
-            approvableType: 'task_hazards',
-            supervisorId: supervisor.id,
-            status: 'pending',
-            approvableSnapshot,
-            risksSnapshot
-          }, { transaction });
-
-          // Update the invalidated approval to reference the new one
-          await currentApproval.update({
-            replacedByApprovalId: newApproval.id
-          }, { transaction });
-
-          // Create notification for supervisor (re-approval)
-          const title = "Task Hazard Requires Re-approval";
-          const message = "A task hazard has been modified and requires your re-approval.";
-          await Notification.create({
-            userId: supervisor.id,
-            title: title,
-            message: message,
-            type: "approval"
-          }, { transaction });
-
-          const html = `
-            <html lang="en">    
-              <body>
-                <h2>
-                  ${title}
-                </h2>
-                <p>
-                  ${message}
-                </p>
-              </body>
-            </html>
-            `;
-
-          sendMail(supervisor.email, title, message, html);
+          // Handle re-approval using centralized function
+          await supervisorApprovalController.handleReapproval(
+            taskHazard.id,
+            'task_hazards',
+            supervisor.id,
+            currentApproval,
+            transaction
+          );
         } else {
-          // No existing approval - create new one using polymorphic fields
-          await SupervisorApproval.create({
-            approvableId: taskHazard.id,
-            approvableType: 'task_hazards',
-            supervisorId: supervisor.id,
-            status: 'pending',
-            approvableSnapshot,
-            risksSnapshot
-          }, { transaction });
-
-          // Create notification for supervisor (new approval)
-          const title = "Task Hazard Pending Approval";
-          const message = "A task hazard requires your approval. Please review the risks and take appropriate actions.";
-          await Notification.create({
-            userId: supervisor.id,
-            title: title,
-            message: message,
-            type: "approval"
-          }, { transaction });
-
-          const link = `${process.env.LIVE_URL}/safety/task-hazard`;
-
-          const html = `
-            <html lang="en">    
-              <body>
-                <h2>
-                  ${title}
-                </h2>
-                <p>
-                  ${message}
-                </p>
-                <a href="${link}">View Task Hazard</a>
-              </body>
-            </html>
-            `;
-
-          sendMail(supervisor.email, title, message, html);
+          // Create new approval using centralized function
+          await supervisorApprovalController.createApproval(
+            taskHazard.id,
+            'task_hazards',
+            supervisor.id,
+            transaction
+          );
         }
       }
 
@@ -1167,14 +1062,23 @@ exports.supervisorApproval = async (req, res) => {
       return sendResponse(res, errorResponse("Invalid approval status. Must be 'Approved' or 'Rejected'.", 400));
     }
 
-    // Create notifications for all individuals
+    // Create notifications and send emails for all individuals
+    const actionTitle = `Task Hazard ${approvalAction.charAt(0).toUpperCase() + approvalAction.slice(1)}`;
+    
+    // Build message with rejection reason if applicable
+    let notificationMessage = `A task hazard you are part of has been ${approvalAction} by your supervisor.`;
+    if (approvalAction === 'rejected' && additionalComments) {
+      notificationMessage += ` Reason: ${additionalComments}`;
+    }
+    
     await Promise.all(updatedTaskHazard.individuals.map(async individual => {
-      await Notification.create({
+      await createNotificationWithEmail({
         userId: individual.id,
-        title: `Task Hazard ${approvalAction.charAt(0).toUpperCase() + approvalAction.slice(1)}`,
-        message: `A task hazard you are part of has been ${approvalAction} by your supervisor.`,
-        type: "hazard"
-      }, { transaction });
+        title: actionTitle,
+        message: notificationMessage,
+        type: 'hazard',
+        transaction
+      });
     }));
 
     await transaction.commit();

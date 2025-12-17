@@ -5,11 +5,10 @@ const RiskAssessment = db.risk_assessments;
 const TaskRisk = db.task_risks;
 const RiskAssessmentRisk = db.risk_assessment_risks;
 const User = db.user;
-const Notification = db.notifications;
 const { successResponse, errorResponse, sendResponse } = require('../helper/responseHelper');
 const { getCompanyId } = require('../helper/controllerHelper');
 const { Op } = require('sequelize');
-const { sendMail } = require('../helper/mail.helper');
+const { createNotificationWithEmail } = require('./notificationController');
 
 /**
  * Helper function to get the appropriate model and risk model based on approvable type
@@ -101,14 +100,15 @@ exports.createApproval = async (approvableId, approvableType, supervisorId, tran
       risksSnapshot
     }, { transaction });
 
-    // Create notification for supervisor
+    // Create notification and send email to supervisor
     const entityName = approvableType === 'task_hazards' ? 'Task Hazard' : 'Risk Assessment';
-    await Notification.create({
+    await createNotificationWithEmail({
       userId: supervisorId,
       title: `${entityName} Pending Approval`,
       message: `A ${entityName.toLowerCase()} requires your approval. Please review the risks and take appropriate actions.`,
-      type: "approval"
-    }, { transaction });
+      type: 'approval',
+      transaction
+    });
 
     return supervisorApproval;
 
@@ -166,32 +166,15 @@ exports.handleReapproval = async (approvableId, approvableType, supervisorId, cu
       replacedByApprovalId: newApproval.id
     }, { transaction });
 
-    // Create notification for supervisor (re-approval)
+    // Create notification and send email to supervisor (re-approval)
     const entityName = approvableType === 'task_hazards' ? 'Task Hazard' : 'Risk Assessment';
-    const title = `${entityName} Requires Re-approval`;
-    const message = `A ${entityName.toLowerCase()} has been modified and requires your re-approval.`;
-    
-    await Notification.create({
+    await createNotificationWithEmail({
       userId: supervisorId,
-      title: title,
-      message: message,
-      type: "approval"
-    }, { transaction });
-
-    const html = `
-      <html lang="en">    
-        <body>
-          <h2>${title}</h2>
-          <p>${message}</p>
-        </body>
-      </html>
-    `;
-
-    // Get supervisor details for email
-    const supervisor = await User.findByPk(supervisorId);
-    if (supervisor) {
-      sendMail(supervisor.email, title, message, html);
-    }
+      title: `${entityName} Requires Re-approval`,
+      message: `A ${entityName.toLowerCase()} has been modified and requires your re-approval.`,
+      type: 'approval',
+      transaction
+    });
 
     return newApproval;
 
@@ -592,16 +575,25 @@ exports.processApproval = async (req, res) => {
       return sendResponse(res, errorResponse("Invalid approval status. Must be 'Approved' or 'Rejected'.", 400));
     }
 
-    // Create notifications for all individuals
+    // Create notifications and send emails for all individuals
     const entityName = approval.approvableType === 'task_hazards' ? 'Task Hazard' : 'Risk Assessment';
+    const notificationType = approval.approvableType === 'task_hazards' ? 'hazard' : 'risk';
+    const actionTitle = `${entityName} ${approvalAction.charAt(0).toUpperCase() + approvalAction.slice(1)}`;
+    
+    // Build message with rejection reason if applicable
+    let notificationMessage = `A ${entityName.toLowerCase()} you are part of has been ${approvalAction} by your supervisor.`;
+    if (approvalAction === 'rejected' && additionalComments) {
+      notificationMessage += ` Reason: ${additionalComments}`;
+    }
     
     await Promise.all(approvableWithIndividuals.individuals.map(async individual => {
-      await Notification.create({
+      await createNotificationWithEmail({
         userId: individual.id,
-        title: `${entityName} ${approvalAction.charAt(0).toUpperCase() + approvalAction.slice(1)}`,
-        message: `A ${entityName.toLowerCase()} you are part of has been ${approvalAction} by your supervisor.`,
-        type: approval.approvableType === 'task_hazards' ? "hazard" : "risk"
-      }, { transaction });
+        title: actionTitle,
+        message: notificationMessage,
+        type: notificationType,
+        transaction
+      });
     }));
 
     await transaction.commit();

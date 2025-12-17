@@ -7,7 +7,7 @@ const db = require('../models');
 const { Op } = require('sequelize');
 
 const AssetHierarchy = db.asset_hierarchy;
-const Notification = db.notifications;
+const { createNotification } = require('../controllers/notificationController');
 
 /**
  * Fields to compare when detecting changes
@@ -439,13 +439,7 @@ const createUploadNotification = async (userId, status, fileName, details = {}) 
       message = `Your file "${fileName}" failed to process. ${details.errorSummary || 'Please check the upload status for details.'}`;
     }
     
-    await Notification.create({
-      userId,
-      title,
-      message,
-      type: 'system',
-      isRead: false
-    });
+    await createNotification(userId, title, message, 'system');
   } catch (error) {
     // Log but don't fail the upload for notification errors
     console.error('Failed to create upload notification:', error);
