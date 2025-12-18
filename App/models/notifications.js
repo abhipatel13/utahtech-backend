@@ -13,7 +13,7 @@ class Notification extends Sequelize.Model {
         type: DataTypes.INTEGER,
         allowNull: false,
         references: {
-          model: 'user',
+          model: 'users',
           key: 'id'
         }
       },
