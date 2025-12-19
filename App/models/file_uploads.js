@@ -32,6 +32,17 @@ class FileUpload extends Sequelize.Model {
         type: DataTypes.TEXT,
         allowNull: true
       },
+      resultSummary: {
+        type: DataTypes.TEXT,
+        allowNull: true,
+        get() {
+          const rawValue = this.getDataValue('resultSummary');
+          return rawValue ? JSON.parse(rawValue) : null;
+        },
+        set(value) {
+          this.setDataValue('resultSummary', value ? JSON.stringify(value) : null);
+        }
+      },
       companyId: {
         type: DataTypes.INTEGER,
         allowNull: false,

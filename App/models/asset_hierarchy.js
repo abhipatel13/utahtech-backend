@@ -4,8 +4,14 @@ class AssetHierarchy extends Sequelize.Model {
   static init(sequelize, DataTypes) {
     return super.init({
       id: {
-        type: Sequelize.STRING,  // CMMS Internal ID + timestamp
+        type: Sequelize.CHAR(36),  // UUIDv7 - internal ID
         primaryKey: true,
+        allowNull: false,
+        defaultValue: () => require('uuid').v7()
+      },
+      externalId: {
+        type: Sequelize.STRING(255),  // User-provided ID, unique per company
+        field: 'external_id',
         allowNull: false
       },
       companyId: {
@@ -18,37 +24,37 @@ class AssetHierarchy extends Sequelize.Model {
         }
       },
       name: {
-        type: Sequelize.STRING,  // Functional Location Description
+        type: Sequelize.STRING,
         field: 'name',
         allowNull: false
       },
       description: {
-        type: Sequelize.TEXT,    // Asset Description
+        type: Sequelize.TEXT,
         field: 'description',
         allowNull: true
       },
       cmmsInternalId: {
-        type: Sequelize.STRING,  // CMMS Internal ID
+        type: Sequelize.STRING,
         field: 'cmms_internal_id',
         allowNull: false
       },
       functionalLocation: {
-        type: Sequelize.STRING,  // Functional Location
+        type: Sequelize.STRING,
         field: 'functional_location',
         allowNull: false
       },
       functionalLocationDesc: {
-        type: Sequelize.STRING,  // Functional Location Description
+        type: Sequelize.STRING,
         field: 'functional_location_desc',
         allowNull: false
       },
       functionalLocationLongDesc: {
-        type: Sequelize.TEXT,    // Functional Location Long Description
+        type: Sequelize.TEXT,
         field: 'functional_location_long_desc',
         allowNull: true
       },
       parent: {
-        type: Sequelize.STRING,  // Parent Functional Location
+        type: Sequelize.CHAR(36),  // References internal ID
         field: 'parent_id',
         allowNull: true,
         references: {
@@ -57,22 +63,22 @@ class AssetHierarchy extends Sequelize.Model {
         }
       },
       maintenancePlant: {
-        type: Sequelize.STRING,  // Maintenance Plant
+        type: Sequelize.STRING,
         field: 'maintenance_plant',
         allowNull: true
       },
       cmmsSystem: {
-        type: Sequelize.STRING,  // CMMS System
+        type: Sequelize.STRING,
         field: 'cmms_system',
         allowNull: true
       },
       objectType: {
-        type: Sequelize.STRING,  // Object Type (Taxonomy Mapping Value)
+        type: Sequelize.STRING,
         field: 'object_type',
         allowNull: true
       },
       systemStatus: {
-        type: Sequelize.STRING,  // System Status
+        type: Sequelize.STRING,
         field: 'system_status',
         defaultValue: 'Active',
         allowNull: true
@@ -104,21 +110,24 @@ class AssetHierarchy extends Sequelize.Model {
         allowNull: true
       }
     },
-      {
-        sequelize,
-        modelName: 'asset_hierarchy',
-        tableName: 'asset_hierarchy',
-        timestamps: true,
-        underscored: true,
-        paranoid: true
-      });
+    {
+      sequelize,
+      modelName: 'asset_hierarchy',
+      tableName: 'asset_hierarchy',
+      timestamps: true,
+      underscored: true,
+      paranoid: true
+      // Note: Unique constraint on (external_id, company_id) for active records
+      // is managed via functional index in scripts/fix-unique-constraints-soft-delete.js
+      // Sequelize doesn't support functional indexes, so it's created via raw SQL
+    });
   };
 
   static associate(models) {
     this.hasMany(models.asset_hierarchy, {
       foreignKey: 'parent',
       as: 'children'
-    })
+    });
 
     this.belongsTo(models.asset_hierarchy, {
       foreignKey: 'parent',
@@ -145,7 +154,6 @@ class AssetHierarchy extends Sequelize.Model {
       const { transaction } = options;
 
       try {
-        // 1. Recursively soft delete all child assets
         const childAssets = await models.asset_hierarchy.findAll({
           where: { parent: asset.id },
           transaction
@@ -155,13 +163,11 @@ class AssetHierarchy extends Sequelize.Model {
           await child.destroy({ transaction });
         }
 
-        // 2. Soft delete associated task hazards
         await models.task_hazards.destroy({
           where: { assetHierarchyId: asset.id },
           transaction
         });
 
-        // 3. Soft delete associated risk assessments
         await models.risk_assessments.destroy({
           where: { assetHierarchyId: asset.id },
           transaction
@@ -178,7 +184,6 @@ class AssetHierarchy extends Sequelize.Model {
       const { transaction } = options;
 
       try {
-        // 1. Restore child assets that were soft deleted and had this asset as parent
         const childAssets = await models.asset_hierarchy.unscoped().findAll({
           where: {
             parent: asset.id,
@@ -191,7 +196,6 @@ class AssetHierarchy extends Sequelize.Model {
           await child.restore({ transaction });
         }
 
-        // 2. Restore associated task hazards that were soft deleted
         await models.task_hazards.restore({
           where: {
             assetHierarchyId: asset.id,
@@ -200,7 +204,6 @@ class AssetHierarchy extends Sequelize.Model {
           transaction
         });
 
-        // 3. Restore associated risk assessments that were soft deleted
         await models.risk_assessments.restore({
           where: {
             assetHierarchyId: asset.id,

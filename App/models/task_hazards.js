@@ -35,7 +35,7 @@ class TaskHazard extends Sequelize.Model {
         field: 'scope_of_work'
       },
       assetHierarchyId: {
-        type: DataTypes.STRING,
+        type: DataTypes.CHAR(36),  // Updated for UUIDv7 internal IDs
         allowNull: true,
         field: 'asset_hierarchy_id',
         references: {

@@ -1,5 +1,6 @@
 const db = require("../models");
 const { Op } = require('sequelize');
+const { v7: uuidv7 } = require('uuid');
 const { successResponse, errorResponse, sendResponse } = require('../helper/responseHelper');
 const { sanitizeInput } = require('../helper/validationHelper');
 
@@ -64,42 +65,58 @@ exports.create = async (req, res) => {
 
     // Start transaction
     const result = await db.sequelize.transaction(async (t) => {
-      const cmmsInternalIds = req.body.assets.map(asset => sanitizeInput(asset.cmmsInternalId));
+      // Fetch existing assets by external ID to check for duplicates
+      const externalIds = req.body.assets.map(asset => sanitizeInput(asset.cmmsInternalId));
 
       const existingAssets = await AssetHierarchy.findAll({
         where: {
-          cmmsInternalId: {
-            [Op.in]: cmmsInternalIds
-          }
+          externalId: {
+            [Op.in]: externalIds
+          },
+          companyId: userCompanyId
         },
-        paranoid:false,
+        paranoid: false,
         transaction: t
       });
-      const existingAssetMap = new Map(existingAssets.map(asset => [asset.id, asset]));
+      const existingExternalIds = new Set(existingAssets.map(asset => asset.externalId));
 
-      // Create all assets without parent relationships first
+      // Build map of external ID to internal ID for parent resolution
+      const externalToInternalMap = new Map();
+      for (const asset of existingAssets) {
+        externalToInternalMap.set(asset.externalId, asset.id);
+      }
+
+      // Create all assets
       const assets = await Promise.all(
         req.body.assets.map(async (asset) => {
-          // Generate a unique ID based on timestamp and cmmsInternalId
-          let uniqueId = sanitizeInput(asset.cmmsInternalId);
-          if (existingAssetMap.has(uniqueId)) {
-            const timestamp = Date.now();
-            uniqueId += `-${timestamp}`;
+          const externalId = sanitizeInput(asset.cmmsInternalId);
+          
+          // Generate new internal UUID
+          const internalId = uuidv7();
+
+          // Resolve parent external ID to internal ID if provided
+          let parentInternalId = null;
+          if (asset.parent) {
+            const parentExternalId = sanitizeInput(asset.parent);
+            parentInternalId = externalToInternalMap.get(parentExternalId) || null;
           }
 
+          // Store mapping for subsequent assets
+          externalToInternalMap.set(externalId, internalId);
+
           return AssetHierarchy.create({
-            id: uniqueId,
+            id: internalId,
+            externalId: externalId,
             companyId: userCompanyId,
             name: sanitizeInput(asset.name),
             description: asset.description ? sanitizeInput(asset.description) : null,
             level: parseInt(asset.level) || 0,
             maintenancePlant: asset.maintenancePlant ? sanitizeInput(asset.maintenancePlant) : null,
-            cmmsInternalId: sanitizeInput(asset.cmmsInternalId),
-            parent: asset.parent ? sanitizeInput(asset.parent) : null,
+            cmmsInternalId: externalId,
+            parent: parentInternalId,
             cmmsSystem: asset.cmmsSystem ? sanitizeInput(asset.cmmsSystem) : null,
-            siteReferenceName: asset.siteReferenceName ? sanitizeInput(asset.siteReferenceName) : null,
-            functionalLocation: asset.functionalLocation ? sanitizeInput(asset.functionalLocation) : null,
-            functionalLocationDesc: asset.functionalLocationDesc ? sanitizeInput(asset.functionalLocationDesc) : null,
+            functionalLocation: asset.functionalLocation ? sanitizeInput(asset.functionalLocation) : externalId,
+            functionalLocationDesc: asset.functionalLocationDesc ? sanitizeInput(asset.functionalLocationDesc) : sanitizeInput(asset.name),
             functionalLocationLongDesc: asset.functionalLocationLongDesc ? sanitizeInput(asset.functionalLocationLongDesc) : null,
             objectType: asset.objectType ? sanitizeInput(asset.objectType) : null,
             systemStatus: asset.systemStatus ? sanitizeInput(asset.systemStatus) : 'Active',
@@ -154,6 +171,8 @@ const generateSystemErrorReport = (error) => {
   if (errorType === 'SequelizeUniqueConstraintError') {
     if (errorMessage.includes('PRIMARY')) {
       return 'Duplicate asset IDs found. Each asset must have a unique ID.';
+    } else if (errorMessage.includes('external_id')) {
+      return 'Duplicate external IDs found. Each asset must have a unique ID within your company.';
     } else if (errorMessage.includes('cmms_internal_id')) {
       return 'Duplicate CMMS Internal IDs found. Each asset must have a unique CMMS Internal ID.';
     } else if (errorMessage.includes('functional_location')) {
@@ -236,14 +255,18 @@ const processFileAsync = async (fileUpload, fileBuffer, mimeType, fileName, colu
       throw error;
     }
 
-    // Step 4: Apply column mappings to rows
+    // Step 4: Apply column mappings to rows (converts 'id' to 'externalId', 'parent_id' to 'parentExternalId')
     const mappedRows = applyColumnMappings(rows, columnMappings);
 
     // Step 5: Fetch existing company assets for validation and change detection
-    const { existingAssetIds, existingParentMap, existingAssetMap } = await fetchExistingAssets(userCompanyId);
+    const existingData = await fetchExistingAssets(userCompanyId);
 
     // Step 6: Validate all upload data
-    const validationResult = validateUploadData(mappedRows, existingAssetIds, existingParentMap);
+    const validationResult = validateUploadData(
+      mappedRows, 
+      existingData.existingAssetIds, 
+      existingData.existingParentMap
+    );
     
     if (!validationResult.valid) {
       const errorReport = generateErrorReport(validationResult.errors, validationResult.summary.totalRows);
@@ -257,11 +280,19 @@ const processFileAsync = async (fileUpload, fileBuffer, mimeType, fileName, colu
     const result = await processAssetUpload(
       validationResult.assetData, 
       userCompanyId, 
-      existingAssetMap
+      existingData
     );
 
-    // Step 8: Update file upload status to completed
-    await updateUploadStatus(fileUpload, 'completed');
+    // Step 8: Update file upload status to completed with result summary
+    await updateUploadStatus(fileUpload, 'completed', {
+      resultSummary: {
+        totalProcessed: result.totalProcessed,
+        createdCount: result.createdCount,
+        updatedCount: result.updatedCount,
+        unchangedCount: result.unchangedCount,
+        processingTime: result.processingTime
+      }
+    });
 
     const processingTimeSeconds = (Date.now() - startTime) / 1000;
     
@@ -340,6 +371,7 @@ exports.uploadAssets = async (req, res) => {
     }
 
     // Validate required mappings exist
+    // Frontend sends 'id' and 'name' - we keep this interface for backward compatibility
     if (!columnMappings.id || !columnMappings.name) {
       const response = errorResponse('Column mappings must include "id" and "name" fields', 400);
       return sendResponse(res, response);
@@ -433,9 +465,9 @@ const autoDetectColumnMappings = (headers, rows) => {
   
   // Map of system field -> possible header names
   const fieldMappings = {
-    id: ['id', 'asset_id', 'assetid'],
+    id: ['id', 'asset_id', 'assetid', 'external_id', 'externalid'],
     name: ['name', 'asset_name', 'assetname', 'functional_location_desc'],
-    parent_id: ['parent_id', 'parentid', 'parent', 'parent_functional_location'],
+    parent_id: ['parent_id', 'parentid', 'parent', 'parent_functional_location', 'parent_external_id'],
     description: ['description', 'desc', 'asset_description'],
     cmms_internal_id: ['cmms_internal_id', 'cmmsinternalid', 'cmms_id'],
     functional_location: ['functional_location', 'functionallocation', 'func_loc'],
@@ -481,6 +513,7 @@ const autoDetectColumnMappings = (headers, rows) => {
 
 /**
  * Retrieve all Asset Hierarchy entries
+ * Returns both internal id and externalId for display
  * @param {object} req - Express request object
  * @param {object} res - Express response object
  */
@@ -580,7 +613,7 @@ exports.findByCompany = async (req, res) => {
 };
 
 /**
- * Find a single Asset Hierarchy entry with an id
+ * Find a single Asset Hierarchy entry by internal ID
  * @param {object} req - Express request object
  * @param {object} res - Express response object
  */
@@ -629,7 +662,54 @@ exports.findOne = async (req, res) => {
   }
 };
 
+/**
+ * Find a single Asset Hierarchy entry by external ID
+ * @param {object} req - Express request object
+ * @param {object} res - Express response object
+ */
+exports.findByExternalId = async (req, res) => {
+  try {
+    const externalId = req.params.externalId;
+    
+    let whereClause = { externalId };
+    
+    if (req.user?.role !== 'universal_user') {
+      const userCompanyId = req.user.company_id || req.user.company?.id;
+      if (!userCompanyId) {
+        const response = errorResponse("User's company information is missing", 400);
+        return sendResponse(res, response);
+      }
+      whereClause.companyId = userCompanyId;
+    }
 
+    const asset = await AssetHierarchy.findOne({
+      where: whereClause,
+      include: [{
+        model: AssetHierarchy,
+        as: 'children',
+        include: [{
+          model: AssetHierarchy,
+          as: 'children'
+        }]
+      }]
+    });
+
+    if (!asset) {
+      const response = errorResponse("Asset not found", 404);
+      return sendResponse(res, response);
+    }
+
+    const response = successResponse("Asset retrieved successfully", asset);
+    sendResponse(res, response);
+  } catch (error) {
+    console.error('Error retrieving asset by external ID:', error);
+    const response = errorResponse(
+      error.message || `Error retrieving Asset with external ID ${req.params.externalId}`,
+      500
+    );
+    sendResponse(res, response);
+  }
+};
 
 /**
  * Get upload history for the current company
@@ -683,6 +763,7 @@ exports.getUploadHistory = async (req, res) => {
         status: upload.status,
         errorMessage: upload.errorMessage, // Full error message
         errorSummary: errorSummary, // Short summary for display
+        resultSummary: upload.resultSummary, // Processing results (created/updated/unchanged counts)
         uploadedBy: upload.uploadedBy?.name || 'Unknown',
         uploadedAt: upload.createdAt,
         updatedAt: upload.updatedAt
@@ -768,6 +849,7 @@ exports.getUploadStatus = async (req, res) => {
       errorMessage: upload.errorMessage,
       errorSummary: errorSummary,
       errors: parsedErrors,
+      resultSummary: upload.resultSummary,
       uploadedBy: upload.uploadedBy?.name || 'Unknown',
       uploadedAt: upload.createdAt,
       updatedAt: upload.updatedAt
@@ -829,108 +911,6 @@ const parseErrorMessage = (errorMessage) => {
   return errors.length > 0 ? errors : null;
 }; 
 
-// exports.delete = async (req, res) => {
-//   try {
-//     // Validate user company access
-//     const userCompanyId = req.user.company_id || req.user.company?.id;
-//     if (!userCompanyId) {
-//       const response = errorResponse("User's company information is missing", 400);
-//       return sendResponse(res, response);
-//     }
-
-//     const id = req.params.id;
-
-//     // Start transaction
-//     const result = await db.sequelize.transaction(async (t) => {
-//       // Find asset with company validation and include children
-//       const asset = await AssetHierarchy.findOne({
-//         where: {
-//           id: id,
-//           companyId: userCompanyId
-//         },
-//         include: [{
-//           model: AssetHierarchy,
-//           as: 'children'
-//         }],
-//         transaction: t
-//       });
-
-//       if (!asset) {
-//         throw new Error("Asset not found.");
-//       }
-
-//       // Check if asset is referenced by task hazards
-//       const referencedByTaskHazards = await TaskHazards.findOne({
-//         where: {
-//           assetHierarchyId: id,
-//           companyId: userCompanyId
-//         },
-//         transaction: t
-//       });
-
-//       if (referencedByTaskHazards) {
-//         throw new Error("Cannot delete asset that is referenced by task hazards.");
-//       }
-
-//       // Check if asset is referenced by risk assessments
-//       const referencedByRiskAssessments = await RiskAssessments.findOne({
-//         where: {
-//           assetHierarchyId: id,
-//           companyId: userCompanyId
-//         },
-//         transaction: t
-//       });
-
-//       if (referencedByRiskAssessments) {
-//         throw new Error("Cannot delete asset that is referenced by risk assessments.");
-//       }
-
-//       // Delete asset and all its children recursively
-//       await deleteAssetRecursively(asset, t);
-
-//       return { message: "Asset deleted successfully" };
-//     });
-
-//     const response = successResponse(result.message, result);
-//     sendResponse(res, response);
-
-//   } catch (error) {
-//     console.error('Error deleting asset:', error);
-    
-//     if (error.message === "Asset not found") {
-//       const response = errorResponse(error.message, 404);
-//       return sendResponse(res, response);
-//     }
-    
-//     if (error.message.includes("Cannot delete asset that is referenced")) {
-//       const response = errorResponse(error.message, 400);
-//       return sendResponse(res, response);
-//     }
-    
-//     const response = errorResponse(
-//       error.message || "Some error occurred while deleting the Asset.",
-//       500
-//     );
-//     sendResponse(res, response);
-//   }
-// };
-
-// const deleteAssetRecursively = async (asset, transaction) => {
-//   // First, get all children of this asset
-//   const children = await AssetHierarchy.findAll({
-//     where: { parent: asset.id },
-//     transaction: transaction
-//   });
-
-//   // Recursively delete all children first
-//   for (const child of children) {
-//     await deleteAssetRecursively(child, transaction);
-//   }
-
-//   // Finally, delete the current asset
-//   await asset.destroy({ transaction: transaction });
-// };
-
 /**
  * Delete an Asset from any company (Universal User only)
  * Bypasses company access restrictions for universal users
@@ -971,6 +951,56 @@ exports.deleteUniversal = async (req, res) => {
       ));
     }
     
+    sendResponse(res, errorResponse(
+      error.message || "Some error occurred while deleting the Asset.",
+      500
+    ));
+  }
+};
+
+/**
+ * Delete an Asset within the user's company (Admin/Superuser only)
+ * Uses Sequelize soft delete (paranoid) - sets deleted_at timestamp
+ * Triggers beforeDestroy hook for cascading soft deletes to children
+ */
+exports.delete = async (req, res) => {
+  try {
+    const assetId = req.params.id;
+    
+    // Get user's company ID for scoping
+    const userCompanyId = req.user.company_id || req.user.company?.id;
+    if (!userCompanyId) {
+      return sendResponse(res, errorResponse("User's company information is missing", 400));
+    }
+
+    // Find asset scoped to user's company
+    const asset = await AssetHierarchy.findOne({
+      where: {
+        id: assetId,
+        companyId: userCompanyId
+      }
+    });
+
+    if (!asset) {
+      return sendResponse(res, errorResponse("Asset not found", 404));
+    }
+
+    // Soft delete via Sequelize destroy() - triggers beforeDestroy hook
+    // which cascades soft delete to children, task_hazards, and risk_assessments
+    await asset.destroy();
+
+    sendResponse(res, successResponse("Asset deleted successfully"));
+
+  } catch (error) {
+    console.error('Error deleting asset:', error);
+
+    if (error.name === 'SequelizeForeignKeyConstraintError') {
+      return sendResponse(res, errorResponse(
+        'Cannot delete asset. It may be referenced by other records.',
+        409
+      ));
+    }
+
     sendResponse(res, errorResponse(
       error.message || "Some error occurred while deleting the Asset.",
       500

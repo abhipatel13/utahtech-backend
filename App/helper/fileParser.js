@@ -1,6 +1,7 @@
 /**
  * File Parser Helper
  * Handles parsing of CSV and Excel files for asset upload
+ * Updated for Internal/External ID System
  */
 
 const csv = require('csv-parse/sync');
@@ -147,8 +148,9 @@ const extractHeaders = (buffer, mimeType, fileName) => {
 /**
  * Apply column mappings to parsed rows
  * Maps user's column names to system field names
+ * Frontend sends 'id' and 'parent_id', we convert to 'externalId' and 'parentExternalId'
  * @param {Array<Object>} rows - Parsed rows with original headers
- * @param {Object} columnMappings - Mapping of system fields to file columns
+ * @param {Object} columnMappings - Mapping of system fields to file columns (from frontend)
  * @returns {Array<Object>} Rows with system field names as keys
  */
 const applyColumnMappings = (rows, columnMappings) => {
@@ -161,9 +163,25 @@ const applyColumnMappings = (rows, columnMappings) => {
     
     for (const [systemField, fileColumn] of Object.entries(columnMappings)) {
       if (fileColumn && row.hasOwnProperty(fileColumn)) {
-        mappedRow[systemField] = row[fileColumn]?.toString().trim() || null;
+        // Map frontend field names to internal field names
+        if (systemField === 'id') {
+          // User's 'id' becomes our 'externalId'
+          mappedRow.externalId = row[fileColumn]?.toString().trim() || null;
+        } else if (systemField === 'parent_id') {
+          // User's 'parent_id' becomes our 'parentExternalId'
+          mappedRow.parentExternalId = row[fileColumn]?.toString().trim() || null;
+        } else {
+          mappedRow[systemField] = row[fileColumn]?.toString().trim() || null;
+        }
       } else {
-        mappedRow[systemField] = null;
+        // Set appropriate null values for unmapped fields
+        if (systemField === 'id') {
+          mappedRow.externalId = null;
+        } else if (systemField === 'parent_id') {
+          mappedRow.parentExternalId = null;
+        } else {
+          mappedRow[systemField] = null;
+        }
       }
     }
     
@@ -225,7 +243,3 @@ module.exports = {
   isFileTypeSupported,
   SUPPORTED_TYPES
 };
-
-
-
-

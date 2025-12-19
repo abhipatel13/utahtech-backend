@@ -1,6 +1,7 @@
 /**
  * Asset Upload Validator
  * Handles validation logic for bulk asset uploads
+ * Updated for Internal/External ID System - uses externalId internally
  */
 
 /**
@@ -19,29 +20,29 @@ const createValidationError = (row, field, value, message) => ({
 });
 
 /**
- * Validate that all IDs in the dataset are unique
- * @param {Array<Object>} rows - Mapped rows with 'id' field
+ * Validate that all external IDs in the dataset are unique
+ * @param {Array<Object>} rows - Mapped rows with 'externalId' field
  * @returns {Array<Object>} Array of validation errors
  */
 const validateIdUniqueness = (rows) => {
   const errors = [];
-  const idOccurrences = new Map(); // id -> array of row numbers
+  const idOccurrences = new Map(); // externalId -> array of row numbers
   
   for (const row of rows) {
-    const id = row.id;
+    const externalId = row.externalId;
     const rowNum = row._originalRowIndex;
     
-    if (!id || id.trim() === '') {
+    if (!externalId || externalId.trim() === '') {
       errors.push(createValidationError(
         rowNum,
         'id',
-        id,
+        externalId,
         'ID is required but missing or empty'
       ));
       continue;
     }
     
-    const trimmedId = id.trim();
+    const trimmedId = externalId.trim();
     if (!idOccurrences.has(trimmedId)) {
       idOccurrences.set(trimmedId, []);
     }
@@ -49,7 +50,7 @@ const validateIdUniqueness = (rows) => {
   }
   
   // Find duplicates
-  for (const [id, rowNumbers] of idOccurrences) {
+  for (const [externalId, rowNumbers] of idOccurrences) {
     if (rowNumbers.length > 1) {
       // Add error for each duplicate occurrence
       for (const rowNum of rowNumbers) {
@@ -57,7 +58,7 @@ const validateIdUniqueness = (rows) => {
         errors.push(createValidationError(
           rowNum,
           'id',
-          id,
+          externalId,
           `Duplicate ID - this value also appears on row${otherRows.length > 1 ? 's' : ''} ${otherRows.join(', ')}`
         ));
       }
@@ -94,34 +95,34 @@ const validateRequiredFields = (rows) => {
 
 /**
  * Validate parent references exist in either the file or database
- * @param {Array<Object>} rows - Mapped rows with 'id' and 'parent_id' fields
- * @param {Set<string>} existingAssetIds - Set of existing asset IDs from database
- * @returns {Object} { errors: Array, parentMap: Map<childId, parentId> }
+ * @param {Array<Object>} rows - Mapped rows with 'externalId' and 'parentExternalId' fields
+ * @param {Set<string>} existingAssetIds - Set of existing asset external IDs from database
+ * @returns {Object} { errors: Array, parentMap: Map<childExternalId, parentExternalId> }
  */
 const validateParentReferences = (rows, existingAssetIds) => {
   const errors = [];
   const parentMap = new Map();
   
-  // Build set of IDs in the current upload
+  // Build set of external IDs in the current upload
   const uploadIds = new Set();
   for (const row of rows) {
-    if (row.id && row.id.trim()) {
-      uploadIds.add(row.id.trim());
+    if (row.externalId && row.externalId.trim()) {
+      uploadIds.add(row.externalId.trim());
     }
   }
   
   // Validate each parent reference
   for (const row of rows) {
     const rowNum = row._originalRowIndex;
-    const parentId = row.parent_id;
+    const parentExternalId = row.parentExternalId;
     
-    if (!parentId || parentId.trim() === '') {
+    if (!parentExternalId || parentExternalId.trim() === '') {
       // No parent - this is a root asset, which is valid
       continue;
     }
     
-    const trimmedParentId = parentId.trim();
-    const trimmedId = row.id?.trim();
+    const trimmedParentId = parentExternalId.trim();
+    const trimmedExternalId = row.externalId?.trim();
     
     // Check if parent exists in upload or database
     const parentInUpload = uploadIds.has(trimmedParentId);
@@ -134,9 +135,9 @@ const validateParentReferences = (rows, existingAssetIds) => {
         trimmedParentId,
         `Parent asset "${trimmedParentId}" does not exist in the file or database`
       ));
-    } else if (trimmedId) {
+    } else if (trimmedExternalId) {
       // Store valid parent relationship for cycle detection
-      parentMap.set(trimmedId, trimmedParentId);
+      parentMap.set(trimmedExternalId, trimmedParentId);
     }
   }
   
@@ -145,8 +146,8 @@ const validateParentReferences = (rows, existingAssetIds) => {
 
 /**
  * Detect cyclic dependencies in parent-child relationships
- * @param {Map<string, string>} parentMap - Map of childId -> parentId
- * @param {Map<string, string>} existingParentMap - Map of existing assets' childId -> parentId
+ * @param {Map<string, string>} parentMap - Map of childExternalId -> parentExternalId
+ * @param {Map<string, string>} existingParentMap - Map of existing assets' childExternalId -> parentExternalId
  * @returns {Array<Object>} Array of validation errors for cycles
  */
 const detectCyclicDependencies = (parentMap, existingParentMap) => {
@@ -219,20 +220,21 @@ const detectCyclicDependencies = (parentMap, existingParentMap) => {
 
 /**
  * Build asset data objects from mapped rows with defaults
+ * Returns objects with externalId and parentExternalId (internal naming)
  * @param {Array<Object>} rows - Mapped rows
  * @returns {Array<Object>} Array of asset data objects ready for database
  */
 const buildAssetDataObjects = (rows) => {
   return rows.map(row => {
-    const id = row.id?.trim();
+    const externalId = row.externalId?.trim();
     const name = row.name?.trim();
     
     return {
-      id,
+      externalId,
       name,
       description: row.description?.trim() || null,
-      cmmsInternalId: row.cmms_internal_id?.trim() || id,
-      functionalLocation: row.functional_location?.trim() || id,
+      cmmsInternalId: row.cmms_internal_id?.trim() || externalId,
+      functionalLocation: row.functional_location?.trim() || externalId,
       functionalLocationDesc: row.functional_location_desc?.trim() || name,
       functionalLocationLongDesc: row.functional_location_long_desc?.trim() || 
         row.functional_location_desc?.trim() || name,
@@ -243,7 +245,7 @@ const buildAssetDataObjects = (rows) => {
       make: row.make?.trim() || null,
       manufacturer: row.manufacturer?.trim() || null,
       serialNumber: row.serial_number?.trim() || null,
-      parent: row.parent_id?.trim() || null,
+      parentExternalId: row.parentExternalId?.trim() || null,
       uploadOrder: row._originalRowIndex - 1 // 0-based upload order
     };
   });
@@ -251,9 +253,9 @@ const buildAssetDataObjects = (rows) => {
 
 /**
  * Run all validations on the upload data
- * @param {Array<Object>} mappedRows - Rows with system field names
- * @param {Set<string>} existingAssetIds - Existing asset IDs from database
- * @param {Map<string, string>} existingParentMap - Existing parent relationships
+ * @param {Array<Object>} mappedRows - Rows with system field names (externalId, parentExternalId)
+ * @param {Set<string>} existingAssetIds - Existing asset external IDs from database
+ * @param {Map<string, string>} existingParentMap - Existing parent relationships (external IDs)
  * @returns {Object} { valid: boolean, errors: Array, assetData: Array }
  */
 const validateUploadData = (mappedRows, existingAssetIds, existingParentMap) => {
@@ -355,7 +357,3 @@ module.exports = {
   validateUploadData,
   generateErrorReport
 };
-
-
-
-

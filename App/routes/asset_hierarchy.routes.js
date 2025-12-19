@@ -123,15 +123,22 @@ router.get('/upload-status/:uploadId',
   assetHierarchyController.getUploadStatus
 );
 
-// Get single asset by ID
+// Get single asset by external ID (user-provided ID)
+router.get('/external/:externalId',
+  assetHierarchyController.findByExternalId
+);
+
+// Get single asset by internal ID (UUID)
 router.get('/:id',
-  validateIdParam('id'),
+  validateUuidParam('id'),
   assetHierarchyController.findOne
 );
 
-// router.delete('/:id',
-//   validateIdParam('id'),
-//   assetHierarchyController.delete
-// );
+// Delete asset (admin/superuser only, scoped to user's company)
+router.delete('/:id',
+  validateUuidParam('id'),
+  requireRole(['admin', 'superuser']),
+  assetHierarchyController.delete
+);
 
 module.exports = router; 
