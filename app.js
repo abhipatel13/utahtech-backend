@@ -130,6 +130,9 @@ app.get('/', function(req, res) {
   res.send("API is running");
 });
 
+// Health check endpoint
+app.get('/healthz', (_, res) => res.status(200).send('ok'));
+
 app.use('/api', routes);
 
 // catch 404 and forward to error handler

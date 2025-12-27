@@ -38,7 +38,7 @@ db.syncInOrder().then(function () {
   /**
    * Listen on provided port, on all network interfaces.
    */
-    server.listen(port, () => {
+    server.listen(port, '0.0.0.0', () => {
       console.log(`HTTP Server running on port ${port}`);
     });
 }).catch(function (err) {
