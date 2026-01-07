@@ -80,12 +80,22 @@ exports.create = async (req, res) => {
       });
       const existingExternalIds = new Set(existingAssets.map(asset => asset.externalId));
 
-      // Build map of external ID to internal ID for parent resolution
-      const externalToInternalMap = new Map();
-      for (const asset of existingAssets) {
-        externalToInternalMap.set(asset.externalId, asset.id);
+      if (existingExternalIds.size > 0) {
+        const error = new Error("Asset with CMMS Internal ID already exists");
+        error.statusCode = 400;
+        throw error;
       }
 
+      const parentIds = req.body.assets.map(asset => sanitizeInput(asset.parent));
+      const existingParents = await AssetHierarchy.findAll({
+        where: {
+          id: {
+            [Op.in]: parentIds
+          },
+          companyId: userCompanyId
+        },
+        transaction: t
+      });
       // Create all assets
       const assets = await Promise.all(
         req.body.assets.map(async (asset) => {
@@ -94,26 +104,26 @@ exports.create = async (req, res) => {
           // Generate new internal UUID
           const internalId = uuidv7();
 
-          // Resolve parent external ID to internal ID if provided
-          let parentInternalId = null;
+          let parentId = null;
+          let level = 0;
+
           if (asset.parent) {
-            const parentExternalId = sanitizeInput(asset.parent);
-            parentInternalId = externalToInternalMap.get(parentExternalId) || null;
+            const parentAsset = existingParents.find(parent => parent.id === asset.parent);
+            if (parentAsset) {
+              level = (parentAsset.level || 0) + 1;
+              parentId = parentAsset.id;
+            }
           }
-
-          // Store mapping for subsequent assets
-          externalToInternalMap.set(externalId, internalId);
-
           return AssetHierarchy.create({
             id: internalId,
             externalId: externalId,
             companyId: userCompanyId,
             name: sanitizeInput(asset.name),
             description: asset.description ? sanitizeInput(asset.description) : null,
-            level: parseInt(asset.level) || 0,
+            level: level || 0,
             maintenancePlant: asset.maintenancePlant ? sanitizeInput(asset.maintenancePlant) : null,
             cmmsInternalId: externalId,
-            parent: parentInternalId,
+            parent: parentId ? parentId : null,
             cmmsSystem: asset.cmmsSystem ? sanitizeInput(asset.cmmsSystem) : null,
             functionalLocation: asset.functionalLocation ? sanitizeInput(asset.functionalLocation) : externalId,
             functionalLocationDesc: asset.functionalLocationDesc ? sanitizeInput(asset.functionalLocationDesc) : sanitizeInput(asset.name),
@@ -127,22 +137,6 @@ exports.create = async (req, res) => {
         })
       );
 
-      // Calculate hierarchy levels
-      const assetMap = new Map(assets.map(asset => [asset.id, asset]));
-      for (const asset of assets) {
-        let level = 0;
-        let currentParent = asset.parent;
-
-        while (currentParent) {
-          level++;
-          const parentAsset = assetMap.get(currentParent);
-          if (!parentAsset) break;
-          currentParent = parentAsset.parent;
-        }
-
-        await asset.update({ level }, { transaction: t });
-      }
-
       return assets;
     });
 
@@ -151,9 +145,10 @@ exports.create = async (req, res) => {
 
   } catch (error) {
     console.error('Error creating asset:', error);
+    const statusCode = error.statusCode || 500;
     const response = errorResponse(
       error.message || "Some error occurred while creating the Asset Hierarchy.",
-      500
+      statusCode
     );
     sendResponse(res, response);
   }
