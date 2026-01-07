@@ -18,11 +18,14 @@ require("dotenv").config();
 const app = require("./app");
 const debug = require("debug")("inspection-backend:server");
 const http = require("http");
+const https = require("https");
+const fs = require("fs");
 
 /**
  * Get port from environment and store in Express.
  */
 const port = normalizePort(process.env.PORT || "3002");
+const httpsPort = normalizePort(process.env.HTTPS_PORT || "3001");
 app.set("port", port);
 
 /**
@@ -38,9 +41,49 @@ db.syncInOrder().then(function () {
   /**
    * Listen on provided port, on all network interfaces.
    */
-    server.listen(port, '0.0.0.0', () => {
-      console.log(`HTTP Server running on port ${port}`);
-    });
+  server.listen(port, '0.0.0.0', () => {
+    console.log(`HTTP Server running on port ${port}`);
+  });
+
+  /**
+   * Setup HTTPS Server if SSL certificates are available
+   */
+  if (process.env.NODE_ENV === 'production' &&
+    process.env.SSL_KEY_PATH &&
+    process.env.SSL_CERT_PATH) {
+    try {
+      if (fs.existsSync(process.env.SSL_KEY_PATH) &&
+        fs.existsSync(process.env.SSL_CERT_PATH)) {
+
+        const httpsOptions = {
+          key: fs.readFileSync(process.env.SSL_KEY_PATH),
+          cert: fs.readFileSync(process.env.SSL_CERT_PATH)
+        };
+
+        const httpsServer = https.createServer(httpsOptions, app);
+        httpsServer.listen(httpsPort, () => {
+          console.log(`HTTPS Server running on port ${httpsPort}`);
+        });
+
+        httpsServer.on("error", (error) => {
+          console.error("HTTPS Server Error:", error);
+        });
+
+        httpsServer.on("listening", () => {
+          onListening(httpsServer);
+        });
+      } else {
+        console.log("SSL certificate files not found, running HTTP only");
+        console.log(`Looking for: ${process.env.SSL_KEY_PATH} and ${process.env.SSL_CERT_PATH}`);
+      }
+    } catch (error) {
+      console.error("Error setting up HTTPS:", error);
+      console.log("Running HTTP only");
+    }
+  } else {
+    console.log("SSL not configured or not in production mode, running HTTP only");
+  }
+
 }).catch(function (err) {
   console.error("Failed to sync database:", err);
   process.exit(1);
