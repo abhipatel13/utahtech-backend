@@ -167,9 +167,10 @@ const getApprovalInfo = async (taskHazardId) => {
 /**
  * Helper function to format task hazard for frontend response
  * Converts junction table associations to comma-separated email string
+ * Only fetches approvals for rejected items to show rejection comments
  */
 // TODO: Remove individual field after updating mobile app
-const formatTaskHazard = (taskHazard) => {
+const formatTaskHazard = async (taskHazard) => {
   const formatted = {
     ...taskHazard.get({ plain: true }),
     supervisor: taskHazard.supervisor?.email || '',
@@ -186,6 +187,49 @@ const formatTaskHazard = (taskHazard) => {
   
   // Add basic approval flag
   formatted.requiresApproval = taskHazard.risks?.some(risk => risk.requiresSupervisorSignature) || false;
+  
+  // Only fetch approvals for rejected items (to show rejection comments)
+  // This minimizes database queries and prevents performance issues
+  const status = taskHazard.status?.toLowerCase();
+  if (status === 'rejected') {
+    try {
+      const approvals = await SupervisorApproval.findAll({
+        where: {
+          approvableId: taskHazard.id,
+          approvableType: 'task_hazards',
+          status: 'rejected' // Only fetch rejected approvals
+        },
+        include: [
+          { model: User, as: 'supervisor', attributes: ['id', 'email', 'name', 'role'] }
+        ],
+        order: [['createdAt', 'DESC']],
+        limit: 5 // Limit to most recent 5 rejected approvals
+      });
+      
+      if (approvals && approvals.length > 0) {
+        formatted.approvals = approvals.map((approval, index) => ({
+          id: approval.id,
+          status: approval.status,
+          createdAt: approval.createdAt,
+          processedAt: approval.processedAt,
+          comments: approval.comments,
+          isInvalidated: approval.isInvalidated || false,
+          isLatest: index === 0,
+          supervisor: approval.supervisor,
+          taskHazardData: approval.approvableSnapshot,
+          approvableData: approval.approvableSnapshot,
+        }));
+      } else {
+        formatted.approvals = [];
+      }
+    } catch (error) {
+      // Silently fail - don't break the whole response
+      console.warn('Error fetching approvals for task hazard:', taskHazard.id, error.message);
+      formatted.approvals = [];
+    }
+  } else {
+    formatted.approvals = [];
+  }
   
   return formatted;
 };
@@ -632,8 +676,27 @@ exports.findAll = async (req, res) => {
 
     console.log("task hazard count:", count);
 
-    // Format for frontend response
-    const formattedTaskHazards = taskHazards.map(formatTaskHazard);
+    // Format for frontend response (now async, so we need Promise.all)
+    // Add error handling to prevent one failure from breaking the entire response
+    const formattedTaskHazards = await Promise.all(
+      taskHazards.map(async (taskHazard) => {
+        try {
+          return await formatTaskHazard(taskHazard);
+        } catch (error) {
+          console.error('Error formatting task hazard:', taskHazard.id, error.message);
+          // Return basic formatted version without approvals if formatting fails
+          const basicFormatted = {
+            ...taskHazard.get({ plain: true }),
+            supervisor: taskHazard.supervisor?.email || '',
+            individual: taskHazard.individuals?.map(user => user.email).join(', ') || '',
+            individuals: taskHazard.individuals?.map(user => user.email).join(', ') || '',
+            requiresApproval: taskHazard.risks?.some(risk => risk.requiresSupervisorSignature) || false,
+            approvals: []
+          };
+          return basicFormatted;
+        }
+      })
+    );
 
     // Send paginated response using helper
     sendResponse(res, paginatedResponse(
@@ -710,7 +773,7 @@ exports.findAllMinimal = async (req, res) => {
       distinct: true
     });
 
-    // Format minimal response
+    // Format minimal response (no approvals for performance)
     const formattedTaskHazards = taskHazards.map(taskHazard => ({
       id: taskHazard.id,
       date: taskHazard.date,
@@ -796,8 +859,26 @@ exports.findByCompany = async (req, res) => {
 
     });
 
-    // Format for frontend response
-    const formattedTaskHazards = taskHazards.map(formatTaskHazard);
+    // Format for frontend response (now async, with error handling)
+    const formattedTaskHazards = await Promise.all(
+      taskHazards.map(async (taskHazard) => {
+        try {
+          return await formatTaskHazard(taskHazard);
+        } catch (error) {
+          console.error('Error formatting task hazard:', taskHazard.id, error.message);
+          // Return basic formatted version without approvals if formatting fails
+          const basicFormatted = {
+            ...taskHazard.get({ plain: true }),
+            supervisor: taskHazard.supervisor?.email || '',
+            individual: taskHazard.individuals?.map(user => user.email).join(', ') || '',
+            individuals: taskHazard.individuals?.map(user => user.email).join(', ') || '',
+            requiresApproval: taskHazard.risks?.some(risk => risk.requiresSupervisorSignature) || false,
+            approvals: []
+          };
+          return basicFormatted;
+        }
+      })
+    );
 
     // Send paginated response using helper
     sendResponse(res, paginatedResponse(
@@ -832,9 +913,10 @@ exports.findOne = async (req, res) => {
     // Find task hazard with company validation
     const taskHazard = await findTaskHazardByIdAndCompany(req.params.id, userCompanyId);
 
-    // Format for frontend response
-    const formattedTaskHazard = formatTaskHazard(taskHazard);
+    // Format for frontend response (now async)
+    const formattedTaskHazard = await formatTaskHazard(taskHazard);
 
+    // Also get latest approval info for backwards compatibility
     formattedTaskHazard.latestApproval = await getApprovalInfo(req.params.id);
 
     sendResponse(res, successResponse(
