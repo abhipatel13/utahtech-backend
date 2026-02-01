@@ -23,13 +23,13 @@ const normalizeIncomingUser = (raw, index) => {
 };
 
 // Allowed roles for import (exclude universal_user for safety)
-const IMPORT_ALLOWED_ROLES = ['superuser','admin','supervisor','user'];
+const IMPORT_ALLOWED_ROLES = ['superuser', 'admin', 'supervisor', 'user'];
 
 // Determine if actor can manage the given company
 const canManageCompany = (actor, companyId) => {
   if (!actor) return false;
   if (actor.role === 'universal_user') return true;
-  if (['superuser','admin'].includes(actor.role)) {
+  if (['superuser', 'admin'].includes(actor.role)) {
     return parseInt(actor.company_id) === parseInt(companyId);
   }
   return false;
@@ -160,58 +160,58 @@ module.exports.bulkUpsert = async (req, res) => {
     const deletedEmailToUser = new Map(deletedUsers.map(u => [u.email.toLowerCase(), u]));
 
     for (const row of filtered) {
-        try {
-          const found = emailToUser.get(row.email);
-          if (!found) {
-            // Create
-            const newUser = await User.create({
-              email: row.email,
-              role: row.role,
-              name: row.name || null,
-              department: row.department || null,
-              phone_no: row.phone || null,
-              company_id: targetCompanyId,
-              password: ''
-            });
+      try {
+        const found = emailToUser.get(row.email);
+        if (!found) {
+          // Create
+          const newUser = await User.create({
+            email: row.email,
+            role: row.role,
+            name: row.name || null,
+            department: row.department || null,
+            phone_no: row.phone || null,
+            company_id: targetCompanyId,
+            password: ''
+          });
 
-            created.push({ email: row.email, id: newUser.id, index: row.index });
-            // Track for subsequent rows in same batch
-            emailToUser.set(row.email, newUser);
-            continue;
-          }
-
-          // If user is deleted and belongs to the same company, restore and update
-          if(deletedEmailToUser.has(row.email)){
-            const deletedUser = deletedEmailToUser.get(row.email);
-            if (parseInt(deletedUser.company_id) === parseInt(targetCompanyId)) {
-              await deletedUser.restore();
-              const reloadUser = await User.unscoped().findOne({
-                where: {
-                  email: row.email
-                },
-                paranoid: false
-              });
-              await updateUser(reloadUser, row, existing, updated);
-              continue;
-            }
-            failed.push({ email: row.email, index: row.index, errors: ['Email in use at a different company'] });
-            continue;
-          }
-
-          // If user belongs to a different company, do not reassign; fail this row
-          if (parseInt(found.company_id) !== parseInt(targetCompanyId)) {
-            failed.push({ email: row.email, index: row.index, errors: ['Email in use at a different company'] });
-            continue;
-          }
-
-          await updateUser(found, row, existing, updated);
-
-        } catch (err) {
-          // Classify as failed for this row
-          const code = err.name === 'SequelizeUniqueConstraintError' ? 'Duplicate email in database' : 'Row processing error';
-          failed.push({ email: row.email, index: row.index, errors: [code] });
+          created.push({ email: row.email, id: newUser.id, index: row.index });
+          // Track for subsequent rows in same batch
+          emailToUser.set(row.email, newUser);
+          continue;
         }
+
+        // If user is deleted and belongs to the same company, restore and update
+        if (deletedEmailToUser.has(row.email)) {
+          const deletedUser = deletedEmailToUser.get(row.email);
+          if (parseInt(deletedUser.company_id) === parseInt(targetCompanyId)) {
+            await deletedUser.restore();
+            const reloadUser = await User.unscoped().findOne({
+              where: {
+                email: row.email
+              },
+              paranoid: false
+            });
+            await updateUser(reloadUser, row, existing, updated);
+            continue;
+          }
+          failed.push({ email: row.email, index: row.index, errors: ['Email in use at a different company'] });
+          continue;
+        }
+
+        // If user belongs to a different company, do not reassign; fail this row
+        if (parseInt(found.company_id) !== parseInt(targetCompanyId)) {
+          failed.push({ email: row.email, index: row.index, errors: ['Email in use at a different company'] });
+          continue;
+        }
+
+        await updateUser(found, row, existing, updated);
+
+      } catch (err) {
+        // Classify as failed for this row
+        const code = err.name === 'SequelizeUniqueConstraintError' ? 'Duplicate email in database' : 'Row processing error';
+        failed.push({ email: row.email, index: row.index, errors: [code] });
       }
+    }
 
     const totalProcessed = created.length + updated.length + existing.length + failed.length;
     const response = successResponse('Bulk upsert processed', {
@@ -268,10 +268,10 @@ module.exports.createUser = async (req, res) => {
     }
 
     // Check if email is already in use
-    const existingUser = await User.findOne({ 
-      where: { email: email, deleted_at: null } 
+    const existingUser = await User.findOne({
+      where: { email: email, deleted_at: null }
     });
-    
+
     if (existingUser) {
       const response = errorResponse('Email is already associated with an account', 409);
       return sendResponse(res, response);
@@ -300,7 +300,7 @@ module.exports.createUser = async (req, res) => {
     const newUser = await User.create(userData);
 
     // Send verification email
-    // Use BACKEND_URL for production (https://18.188.112.65.nip.io) or localhost for local development
+    // Use BACKEND_URL for production (https://960wd305-3000.inc1.devtunnels.ms) or localhost for local development
     const backendUrl = process.env.BACKEND_URL || 'http://localhost:3000';
     const verificationUrl = `${backendUrl}/api/auth/verify-email/${verificationToken}`;
     const subject = "Verify Your Email Address - UTS Tool";
@@ -337,7 +337,7 @@ module.exports.createUser = async (req, res) => {
 
   } catch (error) {
     console.error('Error in createUser:', error);
-    
+
     if (error.name === 'SequelizeUniqueConstraintError') {
       const response = errorResponse('Email already exists', 409);
       return sendResponse(res, response);
@@ -357,7 +357,7 @@ module.exports.getAllUser = async (req, res) => {
     }
 
     const result = await User.unscoped().findAll({
-      attributes: ["id", "email", "name", "phone_no", "department", "profile_pic","role", "company_id","supervisor_id","createdAt","updatedAt"],
+      attributes: ["id", "email", "name", "phone_no", "department", "profile_pic", "role", "company_id", "supervisor_id", "createdAt", "updatedAt"],
       include: [
         {
           model: models.company,
@@ -366,8 +366,8 @@ module.exports.getAllUser = async (req, res) => {
         },
       ],
       where: {
-        deleted_at: null, 
-        company_id: req.user.company_id 
+        deleted_at: null,
+        company_id: req.user.company_id
       }
     });
 
@@ -451,12 +451,12 @@ module.exports.updateUser = async (req, res) => {
     }
 
     // Find the user to update
-    const user = await User.findOne({ 
-      where: { 
+    const user = await User.findOne({
+      where: {
         id: userId,
         company_id: req.user.company_id,
         deleted_at: null
-      } 
+      }
     });
 
     if (!user) {
@@ -466,18 +466,18 @@ module.exports.updateUser = async (req, res) => {
 
     // Prepare update data
     const updateData = {};
-    
+
     // Update email if provided
     if (email && email !== user.email) {
       // Check if email is already in use
-      const existingUser = await User.findOne({ 
-        where: { 
+      const existingUser = await User.findOne({
+        where: {
           email: email,
           id: { [Op.ne]: userId },
           deleted_at: null
-        } 
+        }
       });
-      
+
       if (existingUser) {
         const response = errorResponse("Email is already in use by another user", 409);
         return sendResponse(res, response);
@@ -520,7 +520,7 @@ module.exports.updateUser = async (req, res) => {
 
   } catch (error) {
     console.error("Error in updateUser:", error);
-    
+
     // Handle Sequelize validation errors
     if (error.name === 'SequelizeValidationError') {
       const validationErrors = error.errors.map(err => ({
@@ -528,17 +528,17 @@ module.exports.updateUser = async (req, res) => {
         message: err.message,
         value: err.value
       }));
-      
+
       const response = errorResponse("Validation error", 400, validationErrors);
       return sendResponse(res, response);
     }
-    
+
     // Handle unique constraint errors
     if (error.name === 'SequelizeUniqueConstraintError') {
       const response = errorResponse("Email already exists", 409);
       return sendResponse(res, response);
     }
-    
+
     const response = errorResponse("Internal server error", 500);
     return sendResponse(res, response);
   }
@@ -555,7 +555,7 @@ module.exports.getUserById = async (req, res) => {
     }
 
     const user = await User.findOne({
-      where: { 
+      where: {
         id: userId,
         deleted_at: null
       },
@@ -600,12 +600,12 @@ module.exports.deleteUser = async (req, res) => {
       return sendResponse(res, response);
     }
 
-    const user = await User.findOne({ 
-      where: { 
+    const user = await User.findOne({
+      where: {
         id: userId,
         company_id: req.user.company_id,
         deleted_at: null
-      } 
+      }
     });
 
     if (!user) {
@@ -616,7 +616,7 @@ module.exports.deleteUser = async (req, res) => {
     // Hard delete the user (force: true bypasses paranoid soft delete)
     // This permanently removes the user and frees up the email for re-use
     await user.destroy({ force: true });
-    
+
     const response = successResponse("User deleted successfully");
     return sendResponse(res, response);
 
@@ -650,12 +650,12 @@ module.exports.resetUserPassword = async (req, res) => {
     }
 
     // Find the user to update
-    const user = await User.findOne({ 
-      where: { 
+    const user = await User.findOne({
+      where: {
         id: userId,
         company_id: req.user.company_id,
         deleted_at: null
-      } 
+      }
     });
 
     if (!user) {

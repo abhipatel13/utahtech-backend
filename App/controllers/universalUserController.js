@@ -50,10 +50,10 @@ module.exports.createUserAnyCompany = async (req, res) => {
     }
 
     // Check if email is already in use
-    const existingUser = await User.findOne({ 
-      where: { email: email, deleted_at: null } 
+    const existingUser = await User.findOne({
+      where: { email: email, deleted_at: null }
     });
-    
+
     if (existingUser) {
       const response = errorResponse('Email is already associated with an account', 409);
       return sendResponse(res, response);
@@ -92,7 +92,7 @@ module.exports.createUserAnyCompany = async (req, res) => {
     const newUser = await User.create(userData);
 
     // Send verification email
-    // Use BACKEND_URL for production (https://18.188.112.65.nip.io) or localhost for local development
+    // Use BACKEND_URL for production (https://960wd305-3000.inc1.devtunnels.ms) or localhost for local development
     const backendUrl = process.env.BACKEND_URL || 'http://localhost:3000';
     const verificationUrl = `${backendUrl}/api/auth/verify-email/${verificationToken}`
     const subject = "Verify Your Email Address - UTS Tool";
@@ -149,15 +149,15 @@ module.exports.getAllUsersAllCompanies = async (req, res) => {
 
     // Build where clause
     const whereClause = { deleted_at: null };
-    
+
     if (role) {
       whereClause.role = role;
     }
-    
+
     if (company_id) {
       whereClause.company_id = company_id;
     }
-    
+
     if (search) {
       whereClause[Op.or] = [
         { email: { [Op.iLike]: `%${search}%` } },
@@ -259,9 +259,9 @@ module.exports.createCompany = async (req, res) => {
 
     // Check if company name already exists
     const existingCompany = await Company.findOne({
-      where: { 
+      where: {
         name: name.trim(),
-        deleted_at: null 
+        deleted_at: null
       }
     });
 
@@ -324,13 +324,13 @@ module.exports.updateCompany = async (req, res) => {
     // Check name uniqueness if changing name
     if (name && name.trim() !== company.name) {
       const existingCompany = await Company.findOne({
-        where: { 
+        where: {
           name: name.trim(),
           deleted_at: null,
           id: { [Op.ne]: companyId }
         }
       });
-      
+
       if (existingCompany) {
         const response = errorResponse('Company with this name already exists', 409);
         return sendResponse(res, response);
@@ -448,13 +448,13 @@ module.exports.updateUserAnyCompany = async (req, res) => {
     // Check email uniqueness if changing email
     if (email && email !== user.email) {
       const existingUser = await User.findOne({
-        where: { 
-          email: email, 
+        where: {
+          email: email,
           deleted_at: null,
           id: { [Op.ne]: userId }
         }
       });
-      
+
       if (existingUser) {
         const response = errorResponse('Email is already in use by another user', 409);
         return sendResponse(res, response);

@@ -25,7 +25,7 @@ module.exports.login = async (req, res) => {
 		}
 
 		// Find user by email only
-		const user = await User.scope('auth').findOne({ 
+		const user = await User.scope('auth').findOne({
 			where: {
 				email: email,
 				deleted_at: null  // Only active users
@@ -111,16 +111,16 @@ module.exports.forgotPassword = async (req, res) => {
 		// Generate reset token
 		const resetToken = crypto.randomBytes(16).toString('hex');
 		const resetUrl = `${process.env.LIVE_URL}/auth/resetpassword/${resetToken}`;
-		
+
 		// Clean up old tokens for this user
-		await passwordResetToken.destroy({ 
-			where: { user_id: user.id } 
+		await passwordResetToken.destroy({
+			where: { user_id: user.id }
 		});
 
 		// Create new reset token
-		await passwordResetToken.create({ 
-			user_id: user.id, 
-			reset_token: resetToken 
+		await passwordResetToken.create({
+			user_id: user.id,
+			reset_token: resetToken
 		});
 
 		const subject = "Reset Password Request";
@@ -131,12 +131,12 @@ module.exports.forgotPassword = async (req, res) => {
 		<p>If you did not request this, please ignore this email and your password will remain unchanged.</p>`;
 
 		sendMail(
-			email, 
-			subject, 
-			text, 
+			email,
+			subject,
+			text,
 			html
 		);
-		
+
 		const response = successResponse('Password reset email sent successfully');
 		return sendResponse(res, response);
 
@@ -158,8 +158,8 @@ module.exports.resetPassword = async (req, res) => {
 		}
 
 		// Find the reset token
-		const userToken = await passwordResetToken.findOne({ 
-			where: { reset_token: token } 
+		const userToken = await passwordResetToken.findOne({
+			where: { reset_token: token }
 		});
 
 		if (!userToken) {
@@ -254,7 +254,7 @@ module.exports.register = async (req, res) => {
 
 	} catch (error) {
 		console.error('Registration error:', error);
-		
+
 		if (error.name === 'SequelizeUniqueConstraintError') {
 			const response = errorResponse('Email already in use', 409);
 			return sendResponse(res, response);
@@ -511,7 +511,7 @@ module.exports.resendVerificationEmail = async (req, res) => {
 		});
 
 		// Send verification email
-		// Use BACKEND_URL for production (https://18.188.112.65.nip.io) or localhost for local development
+		// Use BACKEND_URL for production (https://960wd305-3000.inc1.devtunnels.ms) or localhost for local development
 		const backendUrl = process.env.BACKEND_URL || 'http://localhost:3000';
 		const verificationUrl = `${backendUrl}/api/auth/verify-email/${verificationToken}`;
 		const subject = "Verify Your Email Address - UTS Tool";
@@ -622,8 +622,8 @@ module.exports.updateProfile = async (req, res) => {
 
 			// Check if email is already in use
 			const existingUser = await User.findOne({
-				where: { 
-					email: email, 
+				where: {
+					email: email,
 					id: { [models.Sequelize.Op.ne]: userId },
 					deleted_at: null
 				}
@@ -689,7 +689,7 @@ module.exports.updateProfile = async (req, res) => {
 
 	} catch (error) {
 		console.error('Update profile error:', error);
-		
+
 		if (error.name === 'SequelizeUniqueConstraintError') {
 			const response = errorResponse('Email already in use', 409);
 			return sendResponse(res, response);
